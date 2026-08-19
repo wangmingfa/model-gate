@@ -114,15 +114,15 @@ check('全部上游失败 → 502 upstream_failed（聚合错误）', r.status =
 await gate.stop();
 
 // —— 5. 热加载：用 index.ts 子进程 + 临时配置实测轮询重载 ——
-const tmpCfg = '/tmp/mg-smoke-reload.json';
+const tmpCfgPath = '/tmp/mg-smoke-reload.json';
 const baseCfg = JSON.parse(readFileSync('config.json', 'utf-8')) as Record<string, unknown>;
-writeFileSync(tmpCfg, JSON.stringify({ ...baseCfg, port: 8788, aliases: { fast: ['mock:mock-model'] } }));
+writeFileSync(tmpCfgPath, JSON.stringify({ ...baseCfg, port: 8788, aliases: { fast: ['mock:mock-model'] } }));
 const proc = Bun.spawn(['bun', 'src/index.ts', '-c', tmpCfg], { stdout: 'pipe', stderr: 'pipe' });
 await sleep(1200);
 let r2 = await fetch('http://127.0.0.1:8788/v1/models', { headers: AUTH });
 const before = await r2.json();
 writeFileSync(
-  tmpCfg,
+  tmpCfgPath,
   JSON.stringify({ ...baseCfg, port: 8788, aliases: { fast: ['mock:mock-model'], extra: ['mock:mock-model'] } }),
 );
 await sleep(1800); // 轮询间隔 1s + 余量

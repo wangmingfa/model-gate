@@ -1,3 +1,4 @@
+import { readFileSync, writeFileSync } from 'node:fs';
 import { describe, expect, test } from 'bun:test';
 import { loadConfig, validateConfig, interpolateEnv, ConfigError } from './config';
 
@@ -23,7 +24,6 @@ const base = {
 
 function writeTmp(name: string, content: unknown): string {
   const path = `/tmp/mg-test-${name}-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
-  const { writeFileSync } = require('node:fs');
   writeFileSync(path, JSON.stringify(content));
   return path;
 }

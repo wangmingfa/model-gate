@@ -36,7 +36,7 @@ setInterval(() => {
     const next = loadConfig(configPath);
     cfg = next;
     configureLogging(next.access_log);
-    console.log(`[model-gate] 配置已热加载: ${configPath}（默认模型=${next.default_model}，别名=${Object.keys(next.aliases).join(',')}）`);
+    console.log(`[model-gate] 配置已热加载: ${configPath}（默认模型=${next.default_model}，别名=${Object.keys(next.aliases).join(', ')}）`);
   } catch (e) {
     console.error(`[model-gate] 配置重载失败，保留当前配置: ${e instanceof ConfigError ? e.message : (e as Error).message}`);
   }
