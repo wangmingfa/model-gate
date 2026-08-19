@@ -6,6 +6,10 @@ export interface LogRecord {
   ts: string;
   method: string;
   path: string;
+  /**
+   * 最终状态码；流式请求在流结束前可能为 0（"pending" 阶段），
+   * 下游监控工具可用 `status === 0 && stream === true` 过滤掉。
+   */
   status: number;
   ms: number;
   key?: string;

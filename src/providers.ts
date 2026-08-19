@@ -228,7 +228,7 @@ export async function chatWithFailover(
       // 网络错误、超时、非 2xx 都视为该目标失败，继续 failover
       errors.push({
         target,
-        message: e instanceof Error ? e.message : String(e),
+        message: e instanceof Error ? e.message : typeof e === 'object' && e !== null && 'message' in e ? String((e as Record<string, unknown>).message) : String(e),
         status: e instanceof UpstreamError ? e.status : null,
       });
       continue;

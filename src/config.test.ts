@@ -69,6 +69,14 @@ describe('validateConfig', () => {
     expect(() => validateConfig({ ...base, port: 99999 })).toThrow(/port/);
   });
 
+  test('base_url 缺少主机名部分（如 "/chat"）应拒绝', () => {
+    expect(() => validateConfig({ ...base, providers: { p: { base_url: '/chat/completions', api_key: 'k', models: ['m'] } } })).toThrow(/base_url/);
+  });
+
+  test('base_url 只有协议部分（如 "http:/"）应拒绝', () => {
+    expect(() => validateConfig({ ...base, providers: { p: { base_url: 'http:///', api_key: 'k', models: ['m'] } } })).toThrow(/base_url/);
+  });
+
   test('providers 不是对象抛错', () => {
     expect(() => validateConfig({ ...base, providers: [] })).toThrow(/providers/);
   });

@@ -90,6 +90,18 @@ describe('chatWithFailover', () => {
     expect(r.res.status).toBe(502);
   });
 
+  test('非 Error plain object 抛出时错误消息不丢', async () => {
+    const fetchImpl = async (): Promise<Response> => {
+      // Bun/Node 某些情况会抛 plain object（如 AbortError），而非 Error 实例
+      throw { name: 'AbortError', message: 'fetch aborted', code: 'ABORT' };
+    };
+    const r = await chatWithFailover(cfg, 'fast', { messages: [] }, fetchImpl as typeof fetch);
+    expect(r.res.status).toBe(502);
+    const j = await r.res.json();
+    expect(j.error.message).not.toContain('[object Object]');
+    expect(j.error.message).toContain('fetch aborted');
+  });
+
   test('流式：转发 SSE 并改写 model、捕获 usage', async () => {
     const encoder = new TextEncoder();
     const chunks = [

@@ -100,7 +100,7 @@ export function validateConfig(raw: unknown, path = '<config>'): Config {
   for (const [name, p] of Object.entries(providersRaw)) {
     if (!isPlainObject(p)) fail(`providers.${name} 必须是对象`);
     const base_url = p.base_url;
-    if (typeof base_url !== 'string' || !/^https?:\/\/.+/.test(base_url)) {
+    if (typeof base_url !== 'string' || !/^https?:\/\/[^/\s]+/.test(base_url)) {
       fail(`providers.${name}.base_url 必须是 http(s) URL`);
     }
     let api_key: string;

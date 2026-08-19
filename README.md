@@ -18,7 +18,11 @@ LLM API 中转网关：在一个配置文件里配置多家运营商的模型（
 
 ## 快速开始
 
-前置：安装 [bun](https://bun.sh/)（`curl -fsSL https://bun.sh/install | bash`）。
+前置：安装 [bun](https://bun.sh/)（运行时依赖，版本 >= 1.0.0）：
+
+```bash
+curl -fsSL https://bun.sh/install | bash
+```
 
 ```bash
 # 1. 安装依赖

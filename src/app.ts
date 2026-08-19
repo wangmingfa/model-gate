@@ -18,7 +18,6 @@ export function createApp(getConfig: () => Config): Hono<{ Variables: Vars }> {
     const start = Date.now();
     await next();
     const rec: LogRecord = c.get('access') ?? {
-      ts: new Date().toISOString(),
       method: c.req.method,
       path: c.req.path,
       status: 0,
@@ -48,6 +47,9 @@ export function createApp(getConfig: () => Config): Hono<{ Variables: Vars }> {
         }
         finish();
       })();
+      // 流式路径：rec.status 暂为 0（等待流结束），避免 access.log 出现 "状态为 0" 的误报
+      // 非流式路径已在 finish() 里写完 status，不触发这里
+      return;
     } else {
       finish();
     }
