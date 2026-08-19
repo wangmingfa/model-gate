@@ -1,0 +1,24 @@
+{
+  "port": 8787,
+  "host": "127.0.0.1",
+  "default_model": "fast",
+  "timeout_seconds": 60,
+  "access_log": true,
+  "keys": ["sk-local-claude", "sk-local-cursor"],
+  "providers": {
+    "deepseek": {
+      "base_url": "https://api.deepseek.com/v1",
+      "api_key": "${DEEPSEEK_API_KEY}",
+      "models": ["deepseek-chat", "deepseek-reasoner"]
+    },
+    "kimi": {
+      "base_url": "https://api.moonshot.cn/v1",
+      "api_key": "sk-your-kimi-key-here",
+      "models": ["moonshot-v1-8k", "moonshot-v1-32k"]
+    }
+  },
+  "aliases": {
+    "fast": ["deepseek:deepseek-chat", "kimi:moonshot-v1-8k"],
+    "reason": ["deepseek:deepseek-reasoner"]
+  }
+}

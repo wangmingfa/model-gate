@@ -1,0 +1,20 @@
+{
+  "name": "model-gate",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "LLM API 中转网关：配置文件配置多家运营商模型，对外暴露统一 OpenAI 兼容接口",
+  "scripts": {
+    "start": "bun src/index.ts",
+    "dev": "bun --watch src/index.ts",
+    "test": "bun test",
+    "typecheck": "bun build --no-bundle src/index.ts",
+  },
+  "dependencies": {
+    "hono": "^4.6.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "typescript": "^5.0.0"
+  }
+}
