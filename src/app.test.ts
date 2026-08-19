@@ -22,11 +22,17 @@ function req(path: string, opts: RequestInit = {}): Promise<Response> {
 }
 
 afterEach(() => {
-  // @ts-expect-error 恢复全局 fetch
-  globalThis.fetch = globalThis.__origFetch ?? fetch;
+  // @ts-expect-error 恢复全局 fetch（未注入过时 __origFetch 也是 undefined，fallback 到 Bun 内置 fetch）
+  globalThis.fetch = globalThis.__origFetch as typeof fetch | undefined;
 });
 
 describe('auth', () => {
+  test('afterEach 不破坏全局 fetch', async () => {
+    // 模拟一次异步操作后 afterEach 清理
+    await new Promise((r) => setTimeout(r, 10));
+    expect(typeof globalThis.fetch).toBe('function');
+  });
+
   test('无 key 的 /v1/* 请求返回 401', async () => {
     const res = await req('/v1/models');
     expect(res.status).toBe(401);
