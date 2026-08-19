@@ -111,7 +111,7 @@ r = await fetch(`${BASE}/v1/chat/completions`, {
 });
 const fj = await r.json();
 check('全部上游失败 → 502 upstream_failed（聚合错误）', r.status === 502 && fj.error?.code === 'upstream_failed');
-await gate.stop(); // 等待网关完全关闭（含优雅关闭期），避免与热加载子进程抢端口
+await gate.stop();
 
 // —— 5. 热加载：用 index.ts 子进程 + 临时配置实测轮询重载 ——
 const tmpCfg = '/tmp/mg-smoke-reload.json';

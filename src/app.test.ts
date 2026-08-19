@@ -17,13 +17,15 @@ const cfg: Config = {
 
 const app = createApp(() => cfg);
 
+// 缓存真实全局 fetch，防止 afterEach 在没注入 mock 时把 globalThis.fetch 置为 undefined
+const __origFetch = globalThis.fetch;
+
 function req(path: string, opts: RequestInit = {}): Promise<Response> {
   return app.request(path, opts);
 }
 
 afterEach(() => {
-  // @ts-expect-error 恢复全局 fetch（未注入过时 __origFetch 也是 undefined，fallback 到 Bun 内置 fetch）
-  globalThis.fetch = globalThis.__origFetch as typeof fetch | undefined;
+  globalThis.fetch = __origFetch;
 });
 
 describe('auth', () => {
