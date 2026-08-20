@@ -243,7 +243,7 @@ async function onSave(): Promise<void> {
           </div>
         </div>
         <n-space>
-          <n-button quaternary size="small" @click="onLogout">
+          <n-button quaternary size="small" class="hero-logout" @click="onLogout">
             <template #icon><n-icon><LogOutOutline /></n-icon></template>
             登出
           </n-button>
@@ -400,10 +400,14 @@ async function onSave(): Promise<void> {
   justify-content: center;
   flex-shrink: 0;
 }
-.hero-header .n-button--quaternary {
-  color: rgba(255, 255, 255, 0.92);
+/* 登出按钮：玻璃拟态（白描边 + 半透明底），与实心靛紫的保存按钮区分 */
+.hero-header .hero-logout {
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  color: #fff;
 }
-.hero-header .n-button--primary {
+.hero-header .hero-logout:hover {
+  background: rgba(255, 255, 255, 0.3);
   color: #fff;
 }
 
