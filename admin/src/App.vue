@@ -255,17 +255,11 @@ async function onSave(): Promise<void> {
             </p>
           </div>
         </div>
-        <n-space align="center">
-          <n-button type="primary" :loading="saving" @click="onSave">
-            <template #icon><n-icon><SaveOutline /></n-icon></template>
-            保存
+        <n-dropdown trigger="click" :options="userMenuOptions" @select="onUserMenuSelect">
+          <n-button quaternary circle size="small" aria-label="用户菜单">
+            <n-icon :size="22"><PersonCircleOutline /></n-icon>
           </n-button>
-          <n-dropdown trigger="click" :options="userMenuOptions" @select="onUserMenuSelect">
-            <n-button quaternary circle size="small" aria-label="用户菜单">
-              <n-icon :size="22"><PersonCircleOutline /></n-icon>
-            </n-button>
-          </n-dropdown>
-        </n-space>
+        </n-dropdown>
       </div>
 
       <n-alert v-if="loadError" type="error" :title="'加载配置失败'" style="margin-bottom: 16px">
@@ -376,6 +370,14 @@ async function onSave(): Promise<void> {
         </n-space>
       </n-card>
       </template>
+
+      <!-- 保存：页面底部固定悬浮栏，滚动时始终可见 -->
+      <div class="floating-save">
+        <n-button type="primary" size="large" :loading="saving" @click="onSave">
+          <template #icon><n-icon><SaveOutline /></n-icon></template>
+          保存
+        </n-button>
+      </div>
     </template>
   </div>
 </template>
@@ -415,6 +417,25 @@ async function onSave(): Promise<void> {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+/* 保存按钮：页面底部固定悬浮栏，滚动时始终可见 */
+.floating-save {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(to top, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.75));
+  backdrop-filter: blur(8px);
+  border-top: 1px solid rgba(99, 102, 241, 0.15);
+  z-index: 100;
+}
+/* 内容区底部留白，避免被悬浮栏遮挡 */
+.hero-header + * {
+  padding-bottom: 96px;
 }
 
 /* 卡片美化：圆角 + 柔和阴影 + hover 微浮起 */
