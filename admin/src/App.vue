@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
-import { useMessage } from 'naive-ui';
+import { useMessage, NIcon } from 'naive-ui';
 import {
   NCard,
   NForm,
@@ -16,6 +16,18 @@ import {
   NTag,
   NStatistic,
 } from 'naive-ui';
+import {
+  SettingsOutline,
+  RocketOutline,
+  LogOutOutline,
+  SaveOutline,
+  ServerOutline,
+  KeyOutline,
+  GitBranchOutline,
+  LinkOutline,
+  LockClosedOutline,
+  AlertCircleOutline,
+} from '@vicons/ionicons5';
 import { getConfig, saveConfig, testConnection, authStatus, login, logout, type ConfigDraft } from './api';
 
 const message = useMessage();
@@ -189,7 +201,8 @@ async function onSave(): Promise<void> {
 <template>
   <div style="max-width: 900px; margin: 0 auto; padding: 24px">
     <!-- 未配密码：提示去配置文件配置 admin_password -->
-    <n-card v-if="authState === 'need-password'" title="需要配置密码" style="max-width: 480px; margin: 80px auto">
+    <n-card v-if="authState === 'need-password'" title="需要配置密码" style="max-width: 480px; margin: 80px auto" class="auth-card">
+      <div class="auth-icon warn"><n-icon :size="30"><AlertCircleOutline /></n-icon></div>
       <n-alert type="warning" style="margin-bottom: 16px">
         尚未配置管理密码。非本机访问管理界面需要密码保护，请先在配置文件
         <code style="background: #f5f5f5; padding: 0 4px; border-radius: 3px">{{ configPath }}</code>
@@ -200,7 +213,8 @@ async function onSave(): Promise<void> {
     </n-card>
 
     <!-- 配了密码但未登录：登录表单 -->
-    <n-card v-else-if="authState === 'need-login'" title="登录" style="max-width: 480px; margin: 80px auto">
+    <n-card v-else-if="authState === 'need-login'" title="登录" style="max-width: 480px; margin: 80px auto" class="auth-card">
+      <div class="auth-icon"><n-icon :size="30"><LockClosedOutline /></n-icon></div>
       <n-form @submit.prevent="onLogin">
         <n-form-item label="管理密码">
           <n-input
@@ -218,21 +232,37 @@ async function onSave(): Promise<void> {
 
     <!-- 已登录：配置编辑界面 -->
     <template v-else-if="authState === 'ok'">
-      <n-space justify="space-between" align="center">
-        <h2 style="margin: 0">model-gate 配置</h2>
+      <div class="hero-header">
+        <div class="hero-left">
+          <div class="hero-logo"><n-icon :size="26"><RocketOutline /></n-icon></div>
+          <div>
+            <h2 style="margin: 0">model-gate 配置</h2>
+            <p style="margin: 2px 0 0; font-size: 12px; opacity: 0.85">
+              config.json 是唯一真相源 · 保存即校验 + 热加载生效
+            </p>
+          </div>
+        </div>
         <n-space>
-          <n-button quaternary size="small" @click="onLogout">登出</n-button>
-          <n-button type="primary" :loading="saving" @click="onSave">保存</n-button>
+          <n-button quaternary size="small" @click="onLogout">
+            <template #icon><n-icon><LogOutOutline /></n-icon></template>
+            登出
+          </n-button>
+          <n-button type="primary" :loading="saving" @click="onSave">
+            <template #icon><n-icon><SaveOutline /></n-icon></template>
+            保存
+          </n-button>
         </n-space>
-      </n-space>
-      <p style="color: #888; font-size: 12px">config.json 是唯一真相源；保存 = 校验通过后原子写回并热加载生效</p>
+      </div>
 
       <n-alert v-if="loadError" type="error" :title="'加载配置失败'" style="margin-bottom: 16px">
         {{ loadError }}
       </n-alert>
 
       <template v-if="!loadError">
-        <n-card title="基本设置" size="small" style="margin-bottom: 16px">
+        <n-card size="small" style="margin-bottom: 16px" class="soft-card">
+          <template #header>
+            <span class="card-title"><n-icon :size="16"><SettingsOutline /></n-icon> 基本设置</span>
+          </template>
           <n-space size="large">
             <n-statistic label="端口" :value="startup.port" />
             <n-statistic label="监听地址" :value="startup.host" />
@@ -247,11 +277,17 @@ async function onSave(): Promise<void> {
           </n-form-item>
         </n-card>
 
-      <n-card title="下游密钥（keys，agent 连入网关用）" size="small" style="margin-bottom: 16px">
+      <n-card size="small" style="margin-bottom: 16px" class="soft-card">
+        <template #header>
+          <span class="card-title"><n-icon :size="16"><KeyOutline /></n-icon> 下游密钥（keys，agent 连入网关用）</span>
+        </template>
         <n-dynamic-input v-model:value="keys" placeholder="sk-xxx" />
       </n-card>
 
-      <n-card title="上游运营商（providers）" size="small" style="margin-bottom: 16px">
+      <n-card size="small" style="margin-bottom: 16px" class="soft-card">
+        <template #header>
+          <span class="card-title"><n-icon :size="16"><ServerOutline /></n-icon> 上游运营商（providers）</span>
+        </template>
         <n-space vertical>
           <div v-for="(p, i) in providers" :key="i" style="border: 1px solid #eee; border-radius: 8px; padding: 12px">
             <n-space vertical>
@@ -299,7 +335,10 @@ async function onSave(): Promise<void> {
         </n-space>
       </n-card>
 
-      <n-card title="模型别名（aliases，agent 只认别名）" size="small" style="margin-bottom: 16px">
+      <n-card size="small" style="margin-bottom: 16px" class="soft-card">
+        <template #header>
+          <span class="card-title"><n-icon :size="16"><GitBranchOutline /></n-icon> 模型别名（aliases，agent 只认别名）</span>
+        </template>
         <n-space vertical>
           <div v-for="(a, i) in aliases" :key="i" style="border: 1px solid #eee; border-radius: 8px; padding: 12px">
             <n-space justify="space-between" align="center">
@@ -331,3 +370,79 @@ async function onSave(): Promise<void> {
     </template>
   </div>
 </template>
+
+<style>
+/* 顶部渐变 header */
+.hero-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  background: linear-gradient(120deg, #6366f1, #8b5cf6, #d946ef);
+  color: #fff;
+  border-radius: 14px;
+  padding: 18px 22px;
+  margin-bottom: 20px;
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.35);
+}
+.hero-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.hero-logo {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.hero-header .n-button--quaternary {
+  color: rgba(255, 255, 255, 0.92);
+}
+.hero-header .n-button--primary {
+  color: #fff;
+}
+
+/* 卡片标题带图标 */
+.card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 卡片美化：圆角 + 柔和阴影 + hover 微浮起 */
+.soft-card {
+  border-radius: 14px;
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.08);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+.soft-card:hover {
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.16);
+  transform: translateY(-2px);
+}
+
+/* 登录/提示卡片：顶部居中图标 */
+.auth-card {
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(99, 102, 241, 0.15);
+}
+.auth-icon {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #e0e7ff, #fae8ff);
+  color: #6366f1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.auth-icon.warn {
+  background: linear-gradient(135deg, #fef3c7, #fce7f3);
+  color: #d97706;
+}
+</style>

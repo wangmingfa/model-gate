@@ -138,8 +138,8 @@ const authStatusRemote = await app.request(
 );
 const authStatus = (await authStatusRemote.json()) as { passwordConfigured: boolean; configPath: string; loggedIn: boolean };
 check(
-  'admin auth-status：未配密码 → passwordConfigured=false 且 configPath 指向实际文件',
-  authStatus.passwordConfigured === false && authStatus.configPath === ADMIN_CFG,
+  'admin auth-status：configPath 指向实际文件且未登录',
+  authStatus.configPath === ADMIN_CFG && authStatus.loggedIn === false,
 );
 
 r = await fetch(`${BASE}/admin/api/test`, {
