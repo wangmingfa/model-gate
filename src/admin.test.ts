@@ -28,8 +28,12 @@ const remoteEnv = { requestIP: () => ({ address: '192.168.1.10', family: 'IPv4',
 
 const app = createApp(() => loadConfig(tmpPath), { configPath: tmpPath });
 
-function adminReq(path: string, init: RequestInit = {}, env: unknown = loopbackEnv): Promise<Response> {
-  return app.request(`/admin${path}`, { ...init, headers: { 'content-type': 'application/json', ...init.headers } }, env);
+async function adminReq(path: string, init: RequestInit = {}, env: unknown = loopbackEnv): Promise<Response> {
+  return await app.request(
+    `/admin${path}`,
+    { ...init, headers: { 'content-type': 'application/json', ...init.headers } },
+    env as never,
+  );
 }
 
 afterEach(() => {
@@ -64,7 +68,7 @@ describe('GET /admin/api/config', () => {
   test('返回掩码后的配置，密钥不泄露', async () => {
     writeConfig(base);
     const res = await adminReq('/api/config');
-    const j = await res.json();
+    const j = (await res.json()) as Record<string, any>;
     expect(j.providers.deepseek.api_key).toBe('sk-****key');
     expect(j.keys).toEqual(['sk-****one', 'sk-****two']);
     expect(j.keys).not.toContain('sk-agent-one');
@@ -81,12 +85,33 @@ describe('PUT /admin/api/config', () => {
     expect(onDisk.default_model).toBe('fast');
   });
 
+  test('api_key 用 ${ENV} 引用时，保存后文件仍保留引用而不落明文', async () => {
+    process.env.MG_ADMIN_TEST_KEY = 'sk-env-secret-123';
+    const envCfg = {
+      ...base,
+      providers: {
+        deepseek: { base_url: 'https://api.deepseek.com/v1', api_key: '${MG_ADMIN_TEST_KEY}', models: ['deepseek-chat'] },
+      },
+    };
+    writeConfig(envCfg);
+    // 前端看到的是掩码后的值（maskKey('sk-env-secret-123') = 'sk-****123'），原样回写
+    const draft = { ...envCfg, providers: { deepseek: { ...envCfg.providers.deepseek, api_key: 'sk-****123' } } };
+    const res = await adminReq('/api/config', { method: 'PUT', body: JSON.stringify(draft) });
+    expect(res.status).toBe(200);
+    // 关键断言：config.json 里必须仍是 ${VAR} 引用，绝不能是解析后的明文
+    const text = readFileSync(tmpPath, 'utf-8');
+    expect(text).toContain('${MG_ADMIN_TEST_KEY}');
+    expect(text).not.toContain('sk-env-secret-123');
+    // 且重启后仍能正常加载
+    expect(loadConfig(tmpPath).providers.deepseek.api_key).toBe('sk-env-secret-123');
+  });
+
   test('非法配置返回 400 且不写文件', async () => {
     writeConfig(base);
     const bad = { ...base, aliases: { fast: ['ghost:model'] } };
     const res = await adminReq('/api/config', { method: 'PUT', body: JSON.stringify(bad) });
     expect(res.status).toBe(400);
-    const j = await res.json();
+    const j = (await res.json()) as Record<string, any>;
     expect(j.error).toBeDefined();
     // 文件保持原样
     const onDisk = loadConfig(tmpPath);
@@ -138,7 +163,7 @@ describe('POST /admin/api/test', () => {
     // @ts-expect-error 注入 mock fetch
     globalThis.fetch = fetchImpl;
     const res = await adminReq('/api/test', { method: 'POST', body: JSON.stringify({ provider: 'deepseek', model: 'deepseek-chat' }) });
-    const j = await res.json();
+    const j = (await res.json()) as Record<string, any>;
     expect(j.ok).toBe(true);
     expect(typeof j.ms).toBe('number');
   });
@@ -150,7 +175,7 @@ describe('POST /admin/api/test', () => {
     // @ts-expect-error 注入 mock fetch
     globalThis.fetch = fetchImpl;
     const res = await adminReq('/api/test', { method: 'POST', body: JSON.stringify({ provider: 'deepseek', model: 'deepseek-chat' }) });
-    const j = await res.json();
+    const j = (await res.json()) as Record<string, any>;
     expect(j.ok).toBe(false);
     expect(j.status).toBe(401);
   });

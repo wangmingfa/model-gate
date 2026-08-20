@@ -23,6 +23,7 @@ export function createApp(
     const start = Date.now();
     await next();
     const rec: LogRecord = c.get('access') ?? {
+      ts: '',
       method: c.req.method,
       path: c.req.path,
       status: 0,

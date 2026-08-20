@@ -36,11 +36,11 @@ describe('chatWithFailover', () => {
         usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
       });
     };
-    const r = await chatWithFailover(cfg, 'fast', { model: 'fast', messages: [] }, fetchImpl as typeof fetch);
+    const r = await chatWithFailover(cfg, 'fast', { model: 'fast', messages: [] }, fetchImpl as unknown as typeof fetch);
     expect(r.realModel).toBe('deepseek:deepseek-chat');
     expect(r.usageBox.usage?.total_tokens).toBe(7);
     expect(calls.length).toBe(1);
-    const j = await r.res.json();
+    const j = (await r.res.json()) as Record<string, any>;
     expect(j.model).toBe('fast');
   });
 
@@ -51,7 +51,7 @@ describe('chatWithFailover', () => {
       if (call === 1) throw new Error('connection refused');
       return jsonResponse({ id: 'y', object: 'chat.completion', model: 'moonshot-v1-8k', choices: [] });
     };
-    const r = await chatWithFailover(cfg, 'fast', { messages: [] }, fetchImpl as typeof fetch);
+    const r = await chatWithFailover(cfg, 'fast', { messages: [] }, fetchImpl as unknown as typeof fetch);
     expect(r.realModel).toBe('kimi:moonshot-v1-8k');
     expect(r.errors.length).toBe(1);
     expect(call).toBe(2);
@@ -64,7 +64,7 @@ describe('chatWithFailover', () => {
       if (call === 1) return jsonResponse({ error: { message: 'context length exceeded' } }, 400);
       return jsonResponse({ id: 'z', object: 'chat.completion', model: 'moonshot-v1-8k', choices: [] });
     };
-    const r = await chatWithFailover(cfg, 'fast', { messages: [] }, fetchImpl as typeof fetch);
+    const r = await chatWithFailover(cfg, 'fast', { messages: [] }, fetchImpl as unknown as typeof fetch);
     expect(r.realModel).toBe('kimi:moonshot-v1-8k');
   });
 
@@ -73,9 +73,9 @@ describe('chatWithFailover', () => {
       const status = url.includes('deepseek') ? 429 : 400;
       return jsonResponse({ error: { message: 'rate limited' } }, status);
     };
-    const r = await chatWithFailover(cfg, 'fast', { messages: [] }, fetchImpl as typeof fetch);
+    const r = await chatWithFailover(cfg, 'fast', { messages: [] }, fetchImpl as unknown as typeof fetch);
     expect(r.res.status).toBe(400); // 最后一个（kimi）是 400
-    const j = await r.res.json();
+    const j = (await r.res.json()) as Record<string, any>;
     expect(j.error.code).toBe('upstream_failed');
     expect(j.error.message).toContain('deepseek:deepseek-chat');
     expect(j.error.message).toContain('kimi:moonshot-v1-8k');
@@ -86,7 +86,7 @@ describe('chatWithFailover', () => {
     const fetchImpl = async (): Promise<Response> => {
       throw new Error('boom');
     };
-    const r = await chatWithFailover(cfg, 'fast', { messages: [] }, fetchImpl as typeof fetch);
+    const r = await chatWithFailover(cfg, 'fast', { messages: [] }, fetchImpl as unknown as typeof fetch);
     expect(r.res.status).toBe(502);
   });
 
@@ -95,9 +95,9 @@ describe('chatWithFailover', () => {
       // Bun/Node 某些情况会抛 plain object（如 AbortError），而非 Error 实例
       throw { name: 'AbortError', message: 'fetch aborted', code: 'ABORT' };
     };
-    const r = await chatWithFailover(cfg, 'fast', { messages: [] }, fetchImpl as typeof fetch);
+    const r = await chatWithFailover(cfg, 'fast', { messages: [] }, fetchImpl as unknown as typeof fetch);
     expect(r.res.status).toBe(502);
-    const j = await r.res.json();
+    const j = (await r.res.json()) as Record<string, any>;
     expect(j.error.message).not.toContain('[object Object]');
     expect(j.error.message).toContain('fetch aborted');
   });
@@ -117,13 +117,37 @@ describe('chatWithFailover', () => {
       },
     });
     const fetchImpl = async (): Promise<Response> => new Response(body, { status: 200 });
-    const r = await chatWithFailover(cfg, 'fast', { stream: true, messages: [] }, fetchImpl as typeof fetch);
+    const r = await chatWithFailover(cfg, 'fast', { stream: true, messages: [] }, fetchImpl as unknown as typeof fetch);
     expect(r.realModel).toBe('deepseek:deepseek-chat');
     const text = await r.res.text(); // 消费完流后 usageBox 才被填充
     expect(text).not.toContain('"model":"deepseek-chat"');
     expect(text).toContain('"model":"fast"');
     expect(text).toContain('data: [DONE]');
     expect(r.usageBox.usage?.total_tokens).toBe(5);
+  });
+
+  test('流式：上游挂起不发响应头时，在 timeout 内失败并切换下一个', async () => {
+    // 用 1s 超时的配置，避免等 60s
+    const fastCfg: Config = { ...cfg, timeout_seconds: 1 };
+    let call = 0;
+    const fetchImpl = async (url: string, init?: RequestInit): Promise<Response> => {
+      call++;
+      if (call === 1) {
+        // 模拟真实 fetch：挂起不发头，但 signal 被 abort 时必须 reject
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('The operation was aborted')));
+        });
+      }
+      return jsonResponse({ id: 'z', object: 'chat.completion', model: 'moonshot-v1-8k', choices: [] });
+    };
+    const result = await Promise.race([
+      chatWithFailover(fastCfg, 'fast', { stream: true, messages: [] }, fetchImpl as unknown as typeof fetch),
+      new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 5000)),
+    ]);
+    expect(result).not.toBe('timeout'); // Red：当前代码挂起，race 返回 'timeout'
+    const r = result as Awaited<ReturnType<typeof chatWithFailover>>;
+    expect(r.realModel).toBe('kimi:moonshot-v1-8k');
+    expect(call).toBe(2);
   });
 });
 

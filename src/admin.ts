@@ -140,7 +140,7 @@ export function createAdminApp(getConfig: () => Config, configPath: string | und
               (p as Record<string, unknown>).api_key,
               cur?.api_key,
               (raw?.providers as Record<string, unknown> | undefined)?.[name] &&
-                ((raw.providers as Record<string, unknown>)[name] as Record<string, unknown>).api_key,
+                ((raw?.providers as Record<string, unknown>)[name] as Record<string, unknown>).api_key,
             ),
           };
         }
@@ -157,8 +157,21 @@ export function createAdminApp(getConfig: () => Config, configPath: string | und
         400,
       );
     }
+    // validateConfig 会对 api_key 做 ${VAR} 插值（返回解析后的明文）；写回文件前把
+    // providers 的 api_key 恢复为 draft 中 resolveApiKey 之后的原始形式，保留 ${VAR} 引用
+    const providersForWrite: Record<string, unknown> = {};
+    for (const name of Object.keys(validated.providers)) {
+      const draftProvider = (d.providers as Record<string, unknown> | undefined)?.[name];
+      const draftApiKey =
+        typeof draftProvider === 'object' && draftProvider !== null
+          ? (draftProvider as Record<string, unknown>).api_key
+          : undefined;
+      providersForWrite[name] =
+        typeof draftApiKey === 'string' ? { ...validated.providers[name], api_key: draftApiKey } : validated.providers[name];
+    }
+    const configForWrite: Config = { ...validated, providers: providersForWrite as Config['providers'] };
     try {
-      atomicWrite(configPath, `${JSON.stringify(validated, null, 2)}\n`);
+      atomicWrite(configPath, `${JSON.stringify(configForWrite, null, 2)}\n`);
     } catch (e) {
       return c.json(
         { error: { message: `写入配置失败: ${(e as Error).message}`, type: 'server_error', code: 'write_failed' } },

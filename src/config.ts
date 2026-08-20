@@ -76,58 +76,69 @@ export function validateConfig(raw: unknown, path = '<config>'): Config {
     throw new ConfigError(`配置错误 ${path}: ${msg}`);
   };
   if (!isPlainObject(raw)) fail('必须是 JSON 对象');
+  // 不依赖 isPlainObject 的类型守卫收窄（TS 5.9 下对 unknown 参数收窄不可靠），显式断言
+  const r = raw as Record<string, unknown>;
 
-  const port = raw.port ?? 8787;
+  const port = typeof r.port === 'number' ? r.port : 8787;
   if (!Number.isInteger(port) || port < 1 || port > 65535) fail('port 必须是 1-65535 的整数');
 
-  const host = raw.host ?? '127.0.0.1';
-  if (typeof host !== 'string' || host.length === 0) fail('host 必须是非空字符串');
+  const host = typeof r.host === 'string' ? r.host : '127.0.0.1';
+  if (host.length === 0) fail('host 必须是非空字符串');
 
-  const timeout_seconds = raw.timeout_seconds ?? 60;
-  if (typeof timeout_seconds !== 'number' || !Number.isFinite(timeout_seconds) || timeout_seconds <= 0) {
+  const timeout_seconds = typeof r.timeout_seconds === 'number' ? r.timeout_seconds : 60;
+  if (!Number.isFinite(timeout_seconds) || timeout_seconds <= 0) {
     fail('timeout_seconds 必须是大于 0 的数字');
   }
 
-  const access_log = raw.access_log !== false; // 默认开启
+  const access_log = r.access_log !== false; // 默认开启
 
-  const keys = raw.keys;
-  if (!Array.isArray(keys) || keys.length === 0) fail('keys 必须是非空数组（下游鉴权密钥）');
+  const keysRaw = r.keys;
+  if (!Array.isArray(keysRaw) || keysRaw.length === 0) fail('keys 必须是非空数组（下游鉴权密钥）');
+  const keys = keysRaw as string[];
   if (!keys.every((k) => typeof k === 'string' && k.length > 0)) fail('keys 的每一项必须是非空字符串');
 
-  const providersRaw = raw.providers;
+  const providersRaw = r.providers;
   if (!isPlainObject(providersRaw)) fail('providers 必须是对象');
   const providers: Record<string, ProviderConfig> = {};
-  for (const [name, p] of Object.entries(providersRaw)) {
-    if (!isPlainObject(p)) fail(`providers.${name} 必须是对象`);
-    const base_url = p.base_url;
-    if (typeof base_url !== 'string' || !/^https?:\/\/[^/\s]+/.test(base_url)) {
+  for (const [name, pRaw] of Object.entries(providersRaw as Record<string, unknown>)) {
+    if (!isPlainObject(pRaw)) fail(`providers.${name} 必须是对象`);
+    const p = pRaw as Record<string, unknown>;
+    const base_urlRaw = p.base_url;
+    if (typeof base_urlRaw !== 'string' || !/^https?:\/\/[^/\s]+/.test(base_urlRaw)) {
       fail(`providers.${name}.base_url 必须是 http(s) URL`);
     }
-    let api_key: string;
-    try {
-      api_key = interpolateEnv(p.api_key);
-    } catch (e) {
-      fail(`providers.${name}.api_key: ${(e as Error).message}`);
-    }
-    const models = p.models;
-    if (!Array.isArray(models) || models.length === 0 || !models.every((m) => typeof m === 'string' && m.length > 0)) {
+    const base_url = base_urlRaw as string; // 运行时校验已保证是 string
+    const api_key = ((): string => {
+      try {
+        return interpolateEnv(p.api_key);
+      } catch (e) {
+        return fail(`providers.${name}.api_key: ${(e as Error).message}`);
+      }
+    })();
+    const modelsRaw = p.models;
+    if (
+      !Array.isArray(modelsRaw) ||
+      modelsRaw.length === 0 ||
+      !modelsRaw.every((m) => typeof m === 'string' && m.length > 0)
+    ) {
       fail(`providers.${name}.models 必须是非空字符串数组`);
     }
     providers[name] = {
       base_url: base_url.replace(/\/+$/, ''),
       api_key,
-      models: models as string[],
+      models: modelsRaw as string[],
     };
   }
 
-  const aliasesRaw = raw.aliases;
+  const aliasesRaw = r.aliases;
   if (!isPlainObject(aliasesRaw)) fail('aliases 必须是对象');
   const aliases: Record<string, string[]> = {};
-  for (const [name, targets] of Object.entries(aliasesRaw)) {
-    if (!Array.isArray(targets) || targets.length === 0 || !targets.every((t) => typeof t === 'string')) {
+  for (const [name, targetsRaw] of Object.entries(aliasesRaw as Record<string, unknown>)) {
+    if (!Array.isArray(targetsRaw) || targetsRaw.length === 0 || !targetsRaw.every((t) => typeof t === 'string')) {
       fail(`aliases.${name} 必须是非空 "provider:model" 字符串数组`);
     }
-    for (const t of targets as string[]) {
+    const targets = targetsRaw as string[];
+    for (const t of targets) {
       const sep = t.indexOf(':');
       if (sep <= 0 || sep === t.length - 1) {
         fail(`aliases.${name} 中 "${t}" 必须是 "provider:model" 形式`);
@@ -140,15 +151,15 @@ export function validateConfig(raw: unknown, path = '<config>'): Config {
         fail(`aliases.${name} 中 "${t}" 引用的模型 "${modelName}" 不在 provider "${provName}" 的 models 列表中`);
       }
     }
-    aliases[name] = targets as string[];
+    aliases[name] = targets;
   }
 
   if (Object.keys(aliases).length === 0) fail('aliases 至少要定义一个别名');
 
-  const default_model = raw.default_model ?? Object.keys(aliases)[0];
-  if (typeof default_model !== 'string' || !aliases[default_model]) {
-    fail(`default_model "${String(default_model)}" 不是已定义的别名（可用: ${Object.keys(aliases).join(', ')}）`);
+  const default_model = typeof r.default_model === 'string' ? r.default_model : (Object.keys(aliases)[0] ?? '');
+  if (!aliases[default_model]) {
+    fail(`default_model "${default_model}" 不是已定义的别名（可用: ${Object.keys(aliases).join(', ')}）`);
   }
 
-  return { port, host, default_model, timeout_seconds, access_log, keys: keys as string[], providers, aliases };
+  return { port, host, default_model, timeout_seconds, access_log, keys, providers, aliases };
 }

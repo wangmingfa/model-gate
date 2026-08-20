@@ -20,8 +20,8 @@ const app = createApp(() => cfg);
 // 缓存真实全局 fetch，防止 afterEach 在没注入 mock 时把 globalThis.fetch 置为 undefined
 const __origFetch = globalThis.fetch;
 
-function req(path: string, opts: RequestInit = {}): Promise<Response> {
-  return app.request(path, opts);
+async function req(path: string, opts: RequestInit = {}): Promise<Response> {
+  return await app.request(path, opts);
 }
 
 afterEach(() => {
@@ -38,7 +38,7 @@ describe('auth', () => {
   test('无 key 的 /v1/* 请求返回 401', async () => {
     const res = await req('/v1/models');
     expect(res.status).toBe(401);
-    const j = await res.json();
+    const j = (await res.json()) as Record<string, any>;
     expect(j.error.code).toBe('invalid_api_key');
   });
 
@@ -55,14 +55,14 @@ describe('auth', () => {
   test('/health 不需要鉴权', async () => {
     const res = await req('/health');
     expect(res.status).toBe(200);
-    expect((await res.json()).status).toBe('ok');
+    expect((await res.json() as Record<string, unknown>).status).toBe('ok');
   });
 });
 
 describe('routes', () => {
   test('GET /v1/models 返回别名列表', async () => {
     const res = await req('/v1/models', { headers: { authorization: 'Bearer sk-valid' } });
-    const j = await res.json();
+    const j = (await res.json()) as Record<string, any>;
     expect(j.object).toBe('list');
     expect(j.data.map((m: { id: string }) => m.id)).toEqual(['fast']);
   });
@@ -74,7 +74,7 @@ describe('routes', () => {
       body: JSON.stringify({ model: 'ghost', messages: [] }),
     });
     expect(res.status).toBe(400);
-    const j = await res.json();
+    const j = (await res.json()) as Record<string, any>;
     expect(j.error.code).toBe('model_not_found');
     expect(j.error.message).toContain('fast');
   });
@@ -111,7 +111,7 @@ describe('routes', () => {
       body: JSON.stringify({ model: 'fast', messages: [] }),
     });
     expect(res.status).toBe(200);
-    const j = await res.json();
+    const j = (await res.json()) as Record<string, any>;
     expect(j.model).toBe('fast');
     expect(j.usage.total_tokens).toBe(3);
   });

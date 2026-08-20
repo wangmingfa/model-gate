@@ -2,8 +2,6 @@
 import { ref, onMounted, computed } from 'vue';
 import { useMessage } from 'naive-ui';
 import {
-  NConfigProvider,
-  NMessageProvider,
   NCard,
   NForm,
   NFormItem,

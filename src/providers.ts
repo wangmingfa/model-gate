@@ -176,14 +176,22 @@ export async function chatWithFailover(
     };
     const url = `${provider.base_url}/chat/completions`;
 
+    // 流式：仅限制"等到响应头"的时间（header 一到就清除，SSE body 不设整体超时）
+    let headerController: AbortController | null = null;
+    let headerTimer: ReturnType<typeof setTimeout> | null = null;
+    if (isStream) {
+      headerController = new AbortController();
+      headerTimer = setTimeout(() => headerController?.abort(), timeoutMs);
+    }
+
     try {
       const res = await fetchImpl(url, {
         method: 'POST',
         headers,
         body: JSON.stringify(upstreamBody),
-        // 流式：仅限制"等到响应头"的时间；普通请求：整体超时
-        signal: isStream ? undefined : AbortSignal.timeout(timeoutMs),
+        signal: isStream ? headerController!.signal : AbortSignal.timeout(timeoutMs),
       });
+      if (headerTimer) clearTimeout(headerTimer);
 
       if (!res.ok) {
         const text = await res.text().catch(() => '');

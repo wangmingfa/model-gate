@@ -10,8 +10,8 @@
   "scripts": {
     "start": "bun src/index.ts",
     "dev": "bun --watch src/index.ts",
-    "test": "bun test",
-    "typecheck": "bun build --no-bundle src/index.ts",
+    "test": "bun test --path-ignore-patterns=admin",
+    "typecheck": "tsc --noEmit",
     "build:admin": "cd admin && bun install && bun run build",
     "dev:admin": "cd admin && bun run dev"
   },

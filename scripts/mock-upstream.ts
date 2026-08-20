@@ -1,11 +1,12 @@
 // 本地 mock 上游：OpenAI 兼容 /v1/chat/completions（含流式），用于无真实 key 时自测网关
-// 用法: bun scripts/mock-upstream.ts [端口，默认 9999]
+// 用法: bun scripts/mock-upstream.ts [端口，默认 9999]（argv[0]=bun, argv[1]=脚本, 第一个参数是 argv[2]）
+const PORT = Number(process.argv[2] ?? 9999);
 Bun.serve({
-  port: Number(process.argv[3] ?? 9999),
+  port: PORT,
   async fetch(req) {
     const url = new URL(req.url);
     if (req.method === "POST" && url.pathname === "/v1/chat/completions") {
-      const body = await req.json();
+      const body = (await req.json()) as { stream?: boolean; model?: string };
       if (body.stream === true) {
         const encoder = new TextEncoder();
         const stream = new ReadableStream({
@@ -36,4 +37,4 @@ Bun.serve({
     return Response.json({ error: { message: "not found" } }, { status: 404 });
   },
 });
-console.log(`[mock-upstream] listening on :${process.argv[3] ?? 9999}`);
+console.log(`[mock-upstream] listening on :${PORT}`);
