@@ -5,6 +5,7 @@
   "timeout_seconds": 60,
   "access_log": true,
   "keys": ["sk-local-claude", "sk-local-cursor"],
+  "admin_password": "",
   "providers": {
     "deepseek": {
       "base_url": "https://api.deepseek.com/v1",

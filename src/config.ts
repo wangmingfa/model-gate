@@ -22,6 +22,11 @@ export interface Config {
   access_log: boolean;
   /** 下游鉴权密钥列表，agent 必须携带其中之一 */
   keys: string[];
+  /**
+   * 管理界面密码（非回环访问 /admin 时登录用），支持 ${ENV_VAR} 插值；
+   * 留空 = 未配置（此时非回环访问登录页会提示去配置文件配置）
+   */
+  admin_password: string;
   providers: Record<string, ProviderConfig>;
   /** 别名 -> 有序的 "provider:model" 列表，顺序即 failover 顺序 */
   aliases: Record<string, string[]>;
@@ -161,5 +166,20 @@ export function validateConfig(raw: unknown, path = '<config>'): Config {
     fail(`default_model "${default_model}" 不是已定义的别名（可用: ${Object.keys(aliases).join(', ')}）`);
   }
 
-  return { port, host, default_model, timeout_seconds, access_log, keys, providers, aliases };
+  // 管理界面密码：支持 ${ENV} 插值；缺省/空 = 未配置（非回环访问登录页时提示去配置文件配置）
+  let admin_password = '';
+  const adminPasswordRaw = r.admin_password;
+  if (adminPasswordRaw !== undefined) {
+    if (typeof adminPasswordRaw !== 'string') fail('admin_password 必须是字符串');
+    const pwd = adminPasswordRaw as string; // TS 5.9 对 Record 索引的 typeof 收窄不可靠，显式断言
+    if (pwd.length > 0) {
+      try {
+        admin_password = interpolateEnv(pwd);
+      } catch (e) {
+        fail(`admin_password: ${(e as Error).message}`);
+      }
+    }
+  }
+
+  return { port, host, default_model, timeout_seconds, access_log, keys, admin_password, providers, aliases };
 }

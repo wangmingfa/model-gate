@@ -13,6 +13,7 @@ const base: Config = {
   timeout_seconds: 60,
   access_log: false,
   keys: ['sk-agent-one', 'sk-agent-two'],
+  admin_password: '',
   providers: {
     deepseek: { base_url: 'https://api.deepseek.com/v1', api_key: 'sk-real-deepseek-key', models: ['deepseek-chat'] },
   },
@@ -51,16 +52,99 @@ describe('回环访问控制', () => {
     expect(res.status).toBe(200);
   });
 
-  test('非回环访问 403', async () => {
+  test('非回环未登录访问受保护端点 → 401 auth_required', async () => {
     writeConfig(base);
     const res = await adminReq('/api/config', {}, remoteEnv);
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(401);
+    const j = (await res.json()) as Record<string, any>;
+    expect(j.error.code).toBe('auth_required');
+  });
+
+  test('非回环访问公开端点（auth-status）放行', async () => {
+    writeConfig(base);
+    const res = await adminReq('/api/auth-status', {}, remoteEnv);
+    expect(res.status).toBe(200);
   });
 
   test('无 env（应用级请求/测试）放行', async () => {
     writeConfig(base);
     const res = await app.request('/admin/api/config');
     expect(res.status).toBe(200);
+  });
+});
+
+describe('Web UI 密码登录', () => {
+  const remoteIp = (n: number) => ({ requestIP: () => ({ address: `192.168.1.${n}`, family: 'IPv4', port: 1 }) });
+
+  test('未配密码：auth-status 提示去配置文件，configPath 指向实际文件', async () => {
+    writeConfig({ ...base, admin_password: '' });
+    const res = await adminReq('/api/auth-status', {}, remoteIp(1));
+    const j = (await res.json()) as Record<string, any>;
+    expect(j.passwordConfigured).toBe(false);
+    expect(j.configPath).toBe(tmpPath);
+    expect(j.loggedIn).toBe(false);
+  });
+
+  test('未配密码时登录 → 400 no_admin_password', async () => {
+    writeConfig({ ...base, admin_password: '' });
+    const res = await adminReq('/api/login', { method: 'POST', body: JSON.stringify({ password: 'x' }) }, remoteIp(2));
+    expect(res.status).toBe(400);
+    const j = (await res.json()) as Record<string, any>;
+    expect(j.error.code).toBe('no_admin_password');
+  });
+
+  test('登录成功：正确密码 → 200 + set-cookie，携带 cookie 可访问受保护端点', async () => {
+    writeConfig({ ...base, admin_password: 'secret' });
+    const res = await adminReq('/api/login', { method: 'POST', body: JSON.stringify({ password: 'secret' }) }, remoteIp(3));
+    expect(res.status).toBe(200);
+    const setCookie = res.headers.get('set-cookie') ?? '';
+    expect(setCookie).toContain('mg_admin_session=');
+    const cookie = setCookie.split(';')[0];
+    const cfgRes = await adminReq('/api/config', { headers: { cookie } }, remoteIp(3));
+    expect(cfgRes.status).toBe(200);
+  });
+
+  test('登录失败：错误密码 → 401 invalid_password', async () => {
+    writeConfig({ ...base, admin_password: 'secret' });
+    const res = await adminReq('/api/login', { method: 'POST', body: JSON.stringify({ password: 'wrong' }) }, remoteIp(4));
+    expect(res.status).toBe(401);
+    const j = (await res.json()) as Record<string, any>;
+    expect(j.error.code).toBe('invalid_password');
+  });
+
+  test('登录限流：连续 5 次失败后锁定 → 429 login_locked', async () => {
+    writeConfig({ ...base, admin_password: 'secret' });
+    for (let i = 0; i < 5; i++) {
+      const res = await adminReq('/api/login', { method: 'POST', body: JSON.stringify({ password: 'wrong' }) }, remoteIp(5));
+      expect(res.status).toBe(401);
+    }
+    // 第 6 次即使密码正确也被锁
+    const res = await adminReq('/api/login', { method: 'POST', body: JSON.stringify({ password: 'secret' }) }, remoteIp(5));
+    expect(res.status).toBe(429);
+    const j = (await res.json()) as Record<string, any>;
+    expect(j.error.code).toBe('login_locked');
+  });
+
+  test('登出：销毁会话后 cookie 失效', async () => {
+    writeConfig({ ...base, admin_password: 'secret' });
+    const loginRes = await adminReq('/api/login', { method: 'POST', body: JSON.stringify({ password: 'secret' }) }, remoteIp(6));
+    const cookie = (loginRes.headers.get('set-cookie') ?? '').split(';')[0];
+    const logoutRes = await adminReq('/api/logout', { method: 'POST', headers: { cookie } }, remoteIp(6));
+    expect(logoutRes.status).toBe(200);
+    const cfgRes = await adminReq('/api/config', { headers: { cookie } }, remoteIp(6));
+    expect(cfgRes.status).toBe(401);
+  });
+
+  test('PUT 保存后 admin_password 保留（不被空串覆盖）', async () => {
+    writeConfig({ ...base, admin_password: 'secret' });
+    // 非回环访问受保护端点需先登录
+    const loginRes = await adminReq('/api/login', { method: 'POST', body: JSON.stringify({ password: 'secret' }) }, remoteIp(7));
+    const cookie = (loginRes.headers.get('set-cookie') ?? '').split(';')[0];
+    const draft = { ...base, default_model: 'fast' };
+    const res = await adminReq('/api/config', { method: 'PUT', body: JSON.stringify(draft), headers: { cookie } }, remoteIp(7));
+    expect(res.status).toBe(200);
+    const onDisk = loadConfig(tmpPath);
+    expect(onDisk.admin_password).toBe('secret');
   });
 });
 

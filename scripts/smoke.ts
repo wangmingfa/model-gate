@@ -110,13 +110,26 @@ r = await fetch(`${BASE}/admin/api/config`);
 const acfg = (await r.json()) as { providers: Record<string, { api_key: string }>; keys: string[] };
 check('admin GET /api/config → 200 且密钥已掩码', r.status === 200 && acfg.providers?.mock?.api_key?.includes('****'));
 
-// 非回环来源必须 403（admin 安全边界，依赖 env.requestIP 接线）
-const remote403 = await app.request(
+// 非回环来源未登录 → 401 auth_required（admin 安全边界，依赖 env.requestIP 接线）
+const remoteReq = await app.request(
   '/admin/api/config',
   {},
   { requestIP: () => ({ address: '192.168.1.10', family: 'IPv4', port: 1 }) },
 );
-check('admin 非回环来源 → 403', remote403.status === 403);
+const remoteErr = (await remoteReq.json()) as { error?: { code?: string } };
+check('admin 非回环未登录 → 401 auth_required', remoteReq.status === 401 && remoteErr.error?.code === 'auth_required');
+
+// 非回环登录：未配密码时登录页提示；配了密码（临时配置）→ 登录成功拿 cookie
+const authStatusRemote = await app.request(
+  '/admin/api/auth-status',
+  {},
+  { requestIP: () => ({ address: '192.168.1.10', family: 'IPv4', port: 1 }) },
+);
+const authStatus = (await authStatusRemote.json()) as { passwordConfigured: boolean; configPath: string; loggedIn: boolean };
+check(
+  'admin auth-status：未配密码 → passwordConfigured=false 且 configPath 指向实际文件',
+  authStatus.passwordConfigured === false && authStatus.configPath === ADMIN_CFG,
+);
 
 r = await fetch(`${BASE}/admin/api/test`, {
   method: 'POST',

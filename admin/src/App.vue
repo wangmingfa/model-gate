@@ -16,9 +16,56 @@ import {
   NTag,
   NStatistic,
 } from 'naive-ui';
-import { getConfig, saveConfig, testConnection, type ConfigDraft } from './api';
+import { getConfig, saveConfig, testConnection, authStatus, login, logout, type ConfigDraft } from './api';
 
 const message = useMessage();
+
+// ---- 登录态：未配密码 → 提示去配置文件 / 配了未登录 → 登录表单 / 已登录 → 编辑界面 ----
+const authState = ref<'checking' | 'need-password' | 'need-login' | 'ok'>('checking');
+const configPath = ref('config.json');
+const loginPassword = ref('');
+const loginError = ref('');
+const loginBusy = ref(false);
+
+async function checkAuth(): Promise<void> {
+  try {
+    const st = await authStatus();
+    configPath.value = st.configPath;
+    if (st.loggedIn) {
+      authState.value = 'ok';
+      await load();
+    } else if (!st.passwordConfigured) {
+      authState.value = 'need-password';
+    } else {
+      authState.value = 'need-login';
+    }
+  } catch {
+    authState.value = 'need-login';
+  }
+}
+
+async function onLogin(): Promise<void> {
+  loginBusy.value = true;
+  loginError.value = '';
+  try {
+    await login(loginPassword.value);
+    loginPassword.value = '';
+    await checkAuth();
+  } catch (e) {
+    loginError.value = (e as Error).message;
+  } finally {
+    loginBusy.value = false;
+  }
+}
+
+async function onLogout(): Promise<void> {
+  try {
+    await logout();
+  } catch {
+    // 忽略，前端直接回到登录页
+  }
+  authState.value = 'need-login';
+}
 
 // ---- 编辑态（键值对象转成可编辑行）----
 interface ProviderRow {
@@ -79,7 +126,7 @@ async function load(): Promise<void> {
   }
 }
 
-onMounted(load);
+onMounted(checkAuth);
 
 function addProvider(): void {
   providers.value.push({ name: '', base_url: '', api_key: '', models: [] });
@@ -141,31 +188,64 @@ async function onSave(): Promise<void> {
 
 <template>
   <div style="max-width: 900px; margin: 0 auto; padding: 24px">
-    <n-space justify="space-between" align="center">
-      <h2 style="margin: 0">model-gate 配置</h2>
-      <n-button type="primary" :loading="saving" @click="onSave">保存</n-button>
-    </n-space>
-    <p style="color: #888; font-size: 12px">config.json 是唯一真相源；保存 = 校验通过后原子写回并热加载生效</p>
+    <!-- 未配密码：提示去配置文件配置 admin_password -->
+    <n-card v-if="authState === 'need-password'" title="需要配置密码" style="max-width: 480px; margin: 80px auto">
+      <n-alert type="warning" style="margin-bottom: 16px">
+        尚未配置管理密码。非本机访问管理界面需要密码保护，请先在配置文件
+        <code style="background: #f5f5f5; padding: 0 4px; border-radius: 3px">{{ configPath }}</code>
+        中设置 <code style="background: #f5f5f5; padding: 0 4px; border-radius: 3px">admin_password</code> 字段
+        （支持 <code>${ENV_VAR}</code> 环境变量引用），保存后热加载生效，再刷新本页登录。
+      </n-alert>
+      <n-button type="primary" block @click="checkAuth">刷新</n-button>
+    </n-card>
 
-    <n-alert v-if="loadError" type="error" :title="'加载配置失败'" style="margin-bottom: 16px">
-      {{ loadError }}
-    </n-alert>
-
-    <template v-if="!loadError">
-      <n-card title="基本设置" size="small" style="margin-bottom: 16px">
-        <n-space size="large">
-          <n-statistic label="端口" :value="startup.port" />
-          <n-statistic label="监听地址" :value="startup.host" />
-          <n-statistic label="超时（秒）" :value="startup.timeout_seconds" />
-          <n-statistic label="access.log" :value="startup.access_log ? '开' : '关'" />
-        </n-space>
-        <div style="margin-top: 12px; color: #999; font-size: 12px">
-          以上为启动参数，只读展示；修改需编辑 config.json 后重启服务。
-        </div>
-        <n-form-item label="默认模型（agent 未指定 model 时使用）" style="margin-top: 12px">
-          <n-select v-model:value="defaultModel" :options="defaultModelOptions" placeholder="选择一个别名" />
+    <!-- 配了密码但未登录：登录表单 -->
+    <n-card v-else-if="authState === 'need-login'" title="登录" style="max-width: 480px; margin: 80px auto">
+      <n-form @submit.prevent="onLogin">
+        <n-form-item label="管理密码">
+          <n-input
+            v-model:value="loginPassword"
+            type="password"
+            show-password-on="click"
+            placeholder="请输入 admin_password"
+            @keyup.enter="onLogin"
+          />
         </n-form-item>
-      </n-card>
+        <n-alert v-if="loginError" type="error" style="margin-bottom: 12px">{{ loginError }}</n-alert>
+        <n-button type="primary" block :loading="loginBusy" @click="onLogin">登录</n-button>
+      </n-form>
+    </n-card>
+
+    <!-- 已登录：配置编辑界面 -->
+    <template v-else-if="authState === 'ok'">
+      <n-space justify="space-between" align="center">
+        <h2 style="margin: 0">model-gate 配置</h2>
+        <n-space>
+          <n-button quaternary size="small" @click="onLogout">登出</n-button>
+          <n-button type="primary" :loading="saving" @click="onSave">保存</n-button>
+        </n-space>
+      </n-space>
+      <p style="color: #888; font-size: 12px">config.json 是唯一真相源；保存 = 校验通过后原子写回并热加载生效</p>
+
+      <n-alert v-if="loadError" type="error" :title="'加载配置失败'" style="margin-bottom: 16px">
+        {{ loadError }}
+      </n-alert>
+
+      <template v-if="!loadError">
+        <n-card title="基本设置" size="small" style="margin-bottom: 16px">
+          <n-space size="large">
+            <n-statistic label="端口" :value="startup.port" />
+            <n-statistic label="监听地址" :value="startup.host" />
+            <n-statistic label="超时（秒）" :value="startup.timeout_seconds" />
+            <n-statistic label="access.log" :value="startup.access_log ? '开' : '关'" />
+          </n-space>
+          <div style="margin-top: 12px; color: #999; font-size: 12px">
+            以上为启动参数，只读展示；修改需编辑 config.json 后重启服务。
+          </div>
+          <n-form-item label="默认模型（agent 未指定 model 时使用）" style="margin-top: 12px">
+            <n-select v-model:value="defaultModel" :options="defaultModelOptions" placeholder="选择一个别名" />
+          </n-form-item>
+        </n-card>
 
       <n-card title="下游密钥（keys，agent 连入网关用）" size="small" style="margin-bottom: 16px">
         <n-dynamic-input v-model:value="keys" placeholder="sk-xxx" />
@@ -247,6 +327,7 @@ async function onSave(): Promise<void> {
       <n-space justify="center">
         <n-button type="primary" :loading="saving" @click="onSave">保存</n-button>
       </n-space>
+      </template>
     </template>
   </div>
 </template>

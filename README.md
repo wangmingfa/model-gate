@@ -15,7 +15,7 @@ LLM API 中转网关：在一个配置文件里配置多家运营商的模型（
 - **配置热加载**：改 `config.json` 立即生效，无需重启
 - **请求日志**：控制台每请求一行摘要 + `access.log`（JSONL）逐请求记录 token 用量，可开关
 - **密钥支持环境变量**：`api_key` 可以写 `${ENV_VAR}` 引用环境变量
-- **Web 配置界面**：`/admin` 下的 SPA（Vite+Vue3+Naive UI），可视化编辑 provider/别名/密钥/默认模型，保存即校验并热加载；仅限本机回环访问，密钥默认掩码显示
+- **Web 配置界面**：`/admin` 下的 SPA（Vite+Vue3+Naive UI），可视化编辑 provider/别名/密钥/默认模型，保存即校验并热加载；本机回环免登录，非本机访问需 `admin_password` 密码登录，密钥默认掩码显示
 
 ## 快速开始
 
@@ -51,7 +51,8 @@ bun start             # 启动网关，打开 http://127.0.0.1:8787/admin
 - **保存 = 校验通过后原子写回 config.json 并热加载生效**，config.json 始终是唯一真相源
 - 可编辑：providers（base_url/api_key/模型列表 + 每个 provider 的"测试连接"按钮）、aliases（别名 → 有序 `provider:model`，顺序即 failover 顺序）、keys（下游密钥）、默认模型
 - port / host / timeout 等启动参数只读展示（修改需编辑 config.json 后重启）
-- **安全**：`/admin/*` 仅允许本机回环访问（非 127.0.0.1/::1 一律 403），与 `host` 是否 0.0.0.0 无关；密钥默认掩码显示（保留前 3 后 3），编辑时留空 = 保持原值
+- **访问控制**：本机回环（127.0.0.1/::1）免登录直接进入；**非本机访问需密码登录**——在 config.json 顶层配置 `admin_password`（支持 `${ENV_VAR}` 插值，留空 = 未配置）；未配置时登录页会提示去实际配置文件设置。会话为内存态（24 小时过期，重启失效），登录页提供登出；连续 5 次密码错误锁定 60 秒
+- **安全**：密钥默认掩码显示（保留前 3 后 3），编辑时留空 = 保持原值；`admin_password` 不进界面编辑范围，只在配置文件改
 - 开发模式：`bun run dev:admin` 起 Vite dev server（端口 5173，代理 `/admin/api` 到网关），配合 `bun run dev` 热更新前端
 
 启动后服务监听在配置的 `host:port`（默认 `http://127.0.0.1:8787`）。

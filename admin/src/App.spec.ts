@@ -19,8 +19,19 @@ afterEach(() => {
 
 describe('App 挂载', () => {
   test('n-message-provider 包装下挂载成功（useMessage 有祖先）', async () => {
-    // stub fetch，让 onMounted 的 getConfig() 正常返回，避免 happy-dom 下未处理的 abort
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(mockConfig), { status: 200 })));
+    // stub fetch：auth-status 返回已登录，config 返回 mock 配置
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/auth-status')) {
+          return new Response(JSON.stringify({ passwordConfigured: true, configPath: 'config.json', loggedIn: true }), {
+            status: 200,
+          });
+        }
+        return new Response(JSON.stringify(mockConfig), { status: 200 });
+      }),
+    );
     const wrapper = mount(AppRoot);
     await wrapper.vm.$nextTick();
     await new Promise((r) => setTimeout(r, 10)); // 等 onMounted 的 fetch 完成

@@ -49,3 +49,23 @@ export interface TestResult {
 export function testConnection(provider: string, model: string): Promise<TestResult> {
   return request('/test', { method: 'POST', body: JSON.stringify({ provider, model }) });
 }
+
+// ---- 登录 / 登出 / 登录状态 ----
+
+export interface AuthStatus {
+  passwordConfigured: boolean;
+  configPath: string;
+  loggedIn: boolean;
+}
+
+export function authStatus(): Promise<AuthStatus> {
+  return request('/auth-status');
+}
+
+export function login(password: string): Promise<{ ok: true }> {
+  return request('/login', { method: 'POST', body: JSON.stringify({ password }) });
+}
+
+export function logout(): Promise<{ ok: true }> {
+  return request('/logout', { method: 'POST' });
+}

@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Context, Next } from 'hono';
 import { readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Config } from './config';
 import { validateConfig } from './config';
 
@@ -10,30 +11,75 @@ export interface LoopbackEnv {
   requestIP?: (req: Request) => { address: string; family: string; port: number } | null;
 }
 
-/** 密钥掩码：保留前 3 后 3，如 sk-****abc；短密钥全掩 */
-export function maskKey(key: string): string {
-  if (key.length <= 6) return '****';
-  return `${key.slice(0, 3)}****${key.slice(-3)}`;
-}
+const SESSION_COOKIE = 'mg_admin_session';
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 小时
+const MAX_LOGIN_FAILS = 5;
+const LOGIN_LOCK_MS = 60 * 1000; // 5 次失败锁 60s
+
+/** 会话：token -> 过期时间戳（内存态，重启失效） */
+const sessions = new Map<string, number>();
+/** 登录限流：ip -> { 失败次数, 锁定截止时间戳 } */
+const loginFails = new Map<string, { fails: number; lockedUntil: number }>();
 
 function isLoopbackAddress(addr: string): boolean {
   const a = addr.replace(/^::ffff:/, ''); // IPv4-mapped IPv6
   return a === '127.0.0.1' || a === '::1';
 }
 
-/** /admin/* 全局限流：仅本机回环可访问，与 host 配置无关；无 server env（测试/应用级请求）放行 */
-async function loopbackGuard(c: Context, next: Next): Promise<Response | void> {
-  const server = c.env as LoopbackEnv | undefined;
-  if (server?.requestIP) {
-    const ip = server.requestIP(c.req.raw);
-    if (!ip || !isLoopbackAddress(ip.address)) {
-      return c.json(
-        { error: { message: '管理界面仅允许本机回环访问', type: 'forbidden', code: 'loopback_only' } },
-        403,
-      );
-    }
+/** 密钥掩码：保留前 3 后 3，如 sk-****abc；短密钥全掩 */
+export function maskKey(key: string): string {
+  if (key.length <= 6) return '****';
+  return `${key.slice(0, 3)}****${key.slice(-3)}`;
+}
+
+function parseCookies(header: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const part of header.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq > 0) out[part.slice(0, eq).trim()] = part.slice(eq + 1).trim();
   }
-  return next();
+  return out;
+}
+
+/** 恒时密码比较（长度不同直接 false，本机工具够用） */
+function safeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ab.length === bb.length && timingSafeEqual(ab, bb);
+}
+
+function clientIp(c: Context): string | null {
+  const server = c.env as LoopbackEnv | undefined;
+  return server?.requestIP ? (server.requestIP(c.req.raw)?.address ?? null) : null;
+}
+
+/**
+ * /admin 鉴权守卫：
+ * - 回环（或测试无 env）→ 放行（本机免登录）
+ * - 非回环 + 公开端点（SPA 静态、auth-status/login/logout）→ 放行
+ * - 非回环 + 其余端点 → 必须携带有效会话 cookie，否则 401 auth_required
+ */
+async function authGuard(c: Context, next: Next): Promise<Response | void> {
+  const ip = clientIp(c);
+  if (!ip || isLoopbackAddress(ip)) return next();
+
+  const path = c.req.path; // 形如 /admin/api/config
+  const isPublic =
+    path === '/admin' ||
+    path.startsWith('/admin/assets/') ||
+    /^\/admin\/api\/(auth-status|login|logout)$/.test(path);
+  if (isPublic) return next();
+
+  const token = parseCookies(c.req.header('cookie') ?? '')[SESSION_COOKIE];
+  if (token && (sessions.get(token) ?? 0) > Date.now()) return next();
+  return c.json(
+    { error: { message: '需要登录', type: 'unauthorized', code: 'auth_required' } },
+    401,
+  );
+}
+
+function clearSessionCookie(): string {
+  return `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/admin; Max-Age=0`;
 }
 
 /** 读取磁盘上原始配置（api_key 可能仍是 ${VAR} 引用），用于 PUT 时保持原值 */
@@ -93,13 +139,81 @@ async function serveSpa(c: Context, dist: string, rel: string): Promise<Response
 /** 构建管理界面应用（挂载到 /admin 下） */
 export function createAdminApp(getConfig: () => Config, configPath: string | undefined): Hono {
   const admin = new Hono();
-  admin.use('*', loopbackGuard);
+  admin.use('*', authGuard);
+
+  // 登录状态：未配密码时登录页提示去配置文件配置；登录后供前端三态渲染
+  admin.get('/api/auth-status', (c) => {
+    const cfg = getConfig();
+    const token = parseCookies(c.req.header('cookie') ?? '')[SESSION_COOKIE];
+    const loggedIn = !!token && (sessions.get(token) ?? 0) > Date.now();
+    return c.json({
+      passwordConfigured: cfg.admin_password !== '',
+      configPath: configPath ?? 'config.json',
+      loggedIn,
+    });
+  });
+
+  // 密码登录：成功签发内存会话 cookie（24h），失败 401；按来源 IP 限流（5 次失败锁 60s）
+  admin.post('/api/login', async (c) => {
+    const cfg = getConfig();
+    if (!cfg.admin_password) {
+      return c.json(
+        { error: { message: '未配置 admin_password，请先在配置文件中设置', type: 'invalid_request_error', code: 'no_admin_password' } },
+        400,
+      );
+    }
+    const ip = clientIp(c);
+    if (ip) {
+      const rec = loginFails.get(ip);
+      if (rec && rec.lockedUntil > Date.now()) {
+        return c.json(
+          { error: { message: '登录失败次数过多，请稍后再试', type: 'rate_limited', code: 'login_locked' } },
+          429,
+        );
+      }
+    }
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: { message: '请求体必须是合法 JSON', type: 'invalid_request_error' } }, 400);
+    }
+    const { password } = (body ?? {}) as { password?: string };
+    if (typeof password !== 'string' || !safeEqual(password, cfg.admin_password)) {
+      if (ip) {
+        const cur = loginFails.get(ip) ?? { fails: 0, lockedUntil: 0 };
+        const fails = cur.fails + 1;
+        loginFails.set(ip, { fails, lockedUntil: fails >= MAX_LOGIN_FAILS ? Date.now() + LOGIN_LOCK_MS : 0 });
+      }
+      return c.json({ error: { message: '密码错误', type: 'unauthorized', code: 'invalid_password' } }, 401);
+    }
+    if (ip) loginFails.delete(ip); // 成功即清失败计数
+    const token = randomBytes(32).toString('hex');
+    sessions.set(token, Date.now() + SESSION_TTL_MS);
+    return c.json(
+      { ok: true },
+      {
+        status: 200,
+        headers: {
+          'set-cookie': `${SESSION_COOKIE}=${token}; HttpOnly; SameSite=Lax; Path=/admin; Max-Age=${SESSION_TTL_MS / 1000}`,
+        },
+      },
+    );
+  });
+
+  // 登出：销毁会话 + 清 cookie
+  admin.post('/api/logout', (c) => {
+    const token = parseCookies(c.req.header('cookie') ?? '')[SESSION_COOKIE];
+    if (token) sessions.delete(token);
+    return c.json({ ok: true }, { status: 200, headers: { 'set-cookie': clearSessionCookie() } });
+  });
 
   // 返回掩码后的完整配置（前端编辑底稿）
   admin.get('/api/config', (c) => {
     const cfg = getConfig();
+    const { admin_password, ...rest } = cfg; // admin_password 不进编辑范围
     return c.json({
-      ...cfg,
+      ...rest,
       keys: cfg.keys.map(maskKey),
       providers: Object.fromEntries(
         Object.entries(cfg.providers).map(([name, p]) => [name, { ...p, api_key: maskKey(p.api_key) }]),
@@ -169,7 +283,12 @@ export function createAdminApp(getConfig: () => Config, configPath: string | und
       providersForWrite[name] =
         typeof draftApiKey === 'string' ? { ...validated.providers[name], api_key: draftApiKey } : validated.providers[name];
     }
-    const configForWrite: Config = { ...validated, providers: providersForWrite as Config['providers'] };
+    const configForWrite: Config = {
+      ...validated,
+      providers: providersForWrite as Config['providers'],
+      // admin_password 不在编辑范围：写回时保留配置文件中的原始值（含 ${VAR} 引用），避免被空串覆盖
+      admin_password: (typeof raw?.admin_password === 'string' ? raw.admin_password : validated.admin_password),
+    };
     try {
       atomicWrite(configPath, `${JSON.stringify(configForWrite, null, 2)}\n`);
     } catch (e) {

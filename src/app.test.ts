@@ -9,6 +9,7 @@ const cfg: Config = {
   timeout_seconds: 60,
   access_log: false,
   keys: ['sk-valid'],
+  admin_password: '',
   providers: {
     deepseek: { base_url: 'https://api.deepseek.com/v1', api_key: 'sk-ds', models: ['deepseek-chat'] },
   },
