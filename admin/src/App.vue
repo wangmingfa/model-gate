@@ -245,6 +245,7 @@ async function onSave(): Promise<void> {
 
     <!-- 已登录：配置编辑界面 -->
     <template v-else-if="authState === 'ok'">
+      <div class="editor-content">
       <div class="hero-header">
         <div class="hero-left">
           <div class="hero-logo"><n-icon :size="26"><RocketOutline /></n-icon></div>
@@ -378,6 +379,7 @@ async function onSave(): Promise<void> {
           保存
         </n-button>
       </div>
+      </div>
     </template>
   </div>
 </template>
@@ -433,9 +435,9 @@ async function onSave(): Promise<void> {
   border-top: 1px solid rgba(99, 102, 241, 0.15);
   z-index: 100;
 }
-/* 内容区底部留白，避免被悬浮栏遮挡 */
-.hero-header + * {
-  padding-bottom: 96px;
+/* 编辑区容器：底部留白，避免内容被固定悬浮的保存栏遮挡 */
+.editor-content {
+  padding-bottom: 110px;
 }
 
 /* 卡片美化：圆角 + 柔和阴影 + hover 微浮起 */
