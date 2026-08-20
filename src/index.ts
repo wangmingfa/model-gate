@@ -1,4 +1,5 @@
 import { statSync } from 'node:fs';
+import { networkInterfaces } from 'node:os';
 import { loadConfig, ConfigError } from './config';
 import type { Config } from './config';
 import { createApp } from './app';
@@ -7,6 +8,17 @@ import { configureLogging } from './logger';
 function argValue(name: string): string | undefined {
   const i = process.argv.indexOf(name);
   return i >= 0 ? process.argv[i + 1] : undefined;
+}
+
+/** 本机所有非回环 IPv4 地址（用于 host=0.0.0.0 时提示可访问入口） */
+function localIPv4Addresses(): string[] {
+  const out: string[] = [];
+  for (const infos of Object.values(networkInterfaces())) {
+    for (const info of infos ?? []) {
+      if (info.family === 'IPv4' && !info.internal) out.push(info.address);
+    }
+  }
+  return out;
 }
 
 const configPath =
@@ -51,5 +63,13 @@ Bun.serve({
   fetch: (req, server) => app.fetch(req, server),
 });
 
-console.log(`[model-gate] 已启动: http://${cfg.host}:${cfg.port}（配置: ${configPath}）`);
-console.log(`[model-gate] 别名: ${Object.keys(cfg.aliases).join(', ')} | 默认模型: ${cfg.default_model}`);
+if (cfg.host === '0.0.0.0') {
+  console.log(`[model-gate] 已启动，监听所有网卡（端口 ${cfg.port}），可访问入口:`);
+  console.log(`  http://127.0.0.1:${cfg.port}（本机）`);
+  for (const ip of localIPv4Addresses()) {
+    console.log(`  http://${ip}:${cfg.port}`);
+  }
+} else {
+  console.log(`[model-gate] 已启动: http://${cfg.host}:${cfg.port}`);
+}
+console.log(`[model-gate] 配置: ${configPath} | 别名: ${Object.keys(cfg.aliases).join(', ')} | 默认模型: ${cfg.default_model}`);
