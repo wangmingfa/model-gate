@@ -242,16 +242,10 @@ async function onSave(): Promise<void> {
             </p>
           </div>
         </div>
-        <n-space>
-          <n-button quaternary size="small" class="hero-logout" @click="onLogout">
-            <template #icon><n-icon><LogOutOutline /></n-icon></template>
-            登出
-          </n-button>
-          <n-button type="primary" :loading="saving" @click="onSave">
-            <template #icon><n-icon><SaveOutline /></n-icon></template>
-            保存
-          </n-button>
-        </n-space>
+        <n-button type="primary" :loading="saving" @click="onSave">
+          <template #icon><n-icon><SaveOutline /></n-icon></template>
+          保存
+        </n-button>
       </div>
 
       <n-alert v-if="loadError" type="error" :title="'加载配置失败'" style="margin-bottom: 16px">
@@ -364,7 +358,10 @@ async function onSave(): Promise<void> {
 
       <n-divider />
       <n-space justify="center">
-        <n-button type="primary" :loading="saving" @click="onSave">保存</n-button>
+        <n-button quaternary type="error" size="small" @click="onLogout">
+          <template #icon><n-icon><LogOutOutline /></n-icon></template>
+          登出
+        </n-button>
       </n-space>
       </template>
     </template>
@@ -399,16 +396,6 @@ async function onSave(): Promise<void> {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-}
-/* 登出按钮：玻璃拟态（白描边 + 半透明底），与实心靛紫的保存按钮区分 */
-.hero-header .hero-logout {
-  background: rgba(255, 255, 255, 0.14);
-  border: 1px solid rgba(255, 255, 255, 0.65);
-  color: #fff;
-}
-.hero-header .hero-logout:hover {
-  background: rgba(255, 255, 255, 0.3);
-  color: #fff;
 }
 
 /* 卡片标题带图标 */
