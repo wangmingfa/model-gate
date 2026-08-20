@@ -106,6 +106,17 @@ check('未实现端点 /v1/embeddings → 501', r.status === 501);
 // —— 3.5 admin API（本机回环访问；Bun.serve 会把 server 作为 env 传入，回环守卫生效）——
 const expectKey = cfg.providers.mock.api_key;
 
+// SPA 资源可访问（回归：vite base 必须带 /admin 前缀，否则 /assets/* 404）
+r = await fetch(`${BASE}/admin`);
+const adminHtml = await r.text();
+const assetSrc = /src="(\/admin\/assets\/[^"]+)"/.exec(adminHtml)?.[1] ?? '';
+r = assetSrc ? await fetch(`${BASE}${assetSrc}`) : new Response(null, { status: 404 });
+check(
+  'admin SPA 资源路径带 /admin 前缀且可访问',
+  adminHtml.includes('/admin/assets/') && assetSrc !== '' && r.status === 200,
+  assetSrc ? `src=${assetSrc} status=${r.status}` : 'HTML 里没有 /admin/assets/ 资源',
+);
+
 r = await fetch(`${BASE}/admin/api/config`);
 const acfg = (await r.json()) as { providers: Record<string, { api_key: string }>; keys: string[] };
 check('admin GET /api/config → 200 且密钥已掩码', r.status === 200 && acfg.providers?.mock?.api_key?.includes('****'));

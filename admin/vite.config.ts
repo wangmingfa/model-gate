@@ -3,6 +3,8 @@ import vue from '@vitejs/plugin-vue';
 
 export default defineConfig({
   plugins: [vue()],
+  // 网关把 admin 挂在 /admin 下，资源路径必须带前缀，否则 /assets/* 404
+  base: '/admin/',
   server: {
     port: 5173,
     proxy: {
