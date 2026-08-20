@@ -308,17 +308,22 @@ async function onSave(): Promise<void> {
                 <n-form-item label="名称" style="margin-bottom: 0">
                   <n-input v-model:value="p.name" placeholder="如 deepseek" style="width: 160px" />
                 </n-form-item>
-                <n-form-item label="base_url" style="margin-bottom: 0; flex: 1">
-                  <n-input v-model:value="p.base_url" placeholder="https://api.deepseek.com/v1" />
+                <n-form-item label="base_url" style="margin-bottom: 0; flex: 1; min-width: 0">
+                  <n-input
+                    v-model:value="p.base_url"
+                    placeholder="https://api.deepseek.com/v1"
+                    style="width: 100%"
+                  />
                 </n-form-item>
               </n-space>
               <n-space align="center">
-                <n-form-item label="api_key（留空保持原值）" style="margin-bottom: 0; flex: 1">
+                <n-form-item label="api_key（留空保持原值）" style="margin-bottom: 0; flex: 1; min-width: 0">
                   <n-input
                     v-model:value="p.api_key"
                     type="password"
                     show-password-on="click"
                     placeholder="留空保持原值"
+                    style="width: 100%"
                   />
                 </n-form-item>
                 <n-button
