@@ -3,6 +3,8 @@ import type { Config } from './config';
 import { chatWithFailover } from './providers';
 import type { LogRecord } from './logger';
 import { writeAccessLog, consoleSummary, setUsageBox, applyUsageBox } from './logger';
+import { createAdminApp } from './admin';
+import type { LoopbackEnv } from './admin';
 
 type Vars = { access?: LogRecord };
 
@@ -10,8 +12,11 @@ type Vars = { access?: LogRecord };
  * 构建应用。config 通过 getConfig 惰性读取，这样入口热加载换掉配置后，
  * 同一份 app 实例立即使用新配置。
  */
-export function createApp(getConfig: () => Config): Hono<{ Variables: Vars }> {
-  const app = new Hono<{ Variables: Vars }>();
+export function createApp(
+  getConfig: () => Config,
+  opts?: { configPath?: string },
+): Hono<{ Variables: Vars; Bindings: LoopbackEnv }> {
+  const app = new Hono<{ Variables: Vars; Bindings: LoopbackEnv }>();
 
   // 全量请求日志中间件（先注册，作为最外层）
   app.use('*', async (c, next) => {
@@ -154,6 +159,9 @@ export function createApp(getConfig: () => Config): Hono<{ Variables: Vars }> {
       501,
     ),
   );
+
+  // 管理界面（SPA + /admin/api/*），挂载在最后，避免被 /v1/* 的 501 catch-all 拦截
+  app.route('/admin', createAdminApp(getConfig, opts?.configPath));
 
   return app;
 }

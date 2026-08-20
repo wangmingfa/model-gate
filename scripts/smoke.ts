@@ -49,9 +49,11 @@ const mock = Bun.serve({
   },
 });
 
-// —— 2. 起网关（用仓库里的 config.json）——
+// —— 2. 起网关（config.json 复制到临时文件供 admin 保存用，避免污染仓库里的真实配置）——
 const cfg = loadConfig('config.json');
-const app = createApp(() => cfg);
+const ADMIN_CFG = '/tmp/mg-smoke-admin.json';
+writeFileSync(ADMIN_CFG, readFileSync('config.json', 'utf-8'));
+const app = createApp(() => cfg, { configPath: ADMIN_CFG });
 const gate = Bun.serve({ hostname: cfg.host, port: cfg.port, fetch: app.fetch });
 const BASE = `http://127.0.0.1:${cfg.port}`;
 const AUTH = { authorization: `Bearer ${cfg.keys[0]}` };
@@ -100,6 +102,57 @@ r = await fetch(`${BASE}/v1/embeddings`, {
   body: '{}',
 });
 check('未实现端点 /v1/embeddings → 501', r.status === 501);
+
+// —— 3.5 admin API（本机回环访问；Bun.serve 会把 server 作为 env 传入，回环守卫生效）——
+const expectKey = cfg.providers.mock.api_key;
+
+r = await fetch(`${BASE}/admin/api/config`);
+const acfg = (await r.json()) as { providers: Record<string, { api_key: string }>; keys: string[] };
+check('admin GET /api/config → 200 且密钥已掩码', r.status === 200 && acfg.providers?.mock?.api_key?.includes('****'));
+
+// 非回环来源必须 403（admin 安全边界，依赖 env.requestIP 接线）
+const remote403 = await app.request(
+  '/admin/api/config',
+  {},
+  { requestIP: () => ({ address: '192.168.1.10', family: 'IPv4', port: 1 }) },
+);
+check('admin 非回环来源 → 403', remote403.status === 403);
+
+r = await fetch(`${BASE}/admin/api/test`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ provider: 'mock', model: 'mock-model' }),
+});
+const t = (await r.json()) as { ok: boolean; ms?: number };
+check('admin 测试连接（mock 在线）→ ok:true', t.ok === true && typeof t.ms === 'number');
+
+r = await fetch(`${BASE}/admin/api/config`, {
+  method: 'PUT',
+  headers: { 'content-type': 'application/json' },
+  // 把掩码后的配置原样写回，后端应还原真实密钥
+  body: JSON.stringify(acfg),
+});
+const saved = await r.json();
+check('admin PUT 保存（掩码回写）→ 200', r.status === 200 && (saved as { ok?: boolean }).ok === true);
+// 断言写回的是临时文件（仓库 config.json 未被触碰），且全配置 round-trip 一致、字段不丢
+const written = loadConfig(ADMIN_CFG);
+check(
+  '掩码回写后密钥还原 + 全配置 round-trip 一致',
+  written.providers.mock.api_key === expectKey &&
+    written.port === cfg.port &&
+    written.host === cfg.host &&
+    written.timeout_seconds === cfg.timeout_seconds &&
+    JSON.stringify(written.keys) === JSON.stringify(cfg.keys) &&
+    JSON.stringify(written.aliases) === JSON.stringify(cfg.aliases),
+);
+
+r = await fetch(`${BASE}/admin/api/config`, {
+  method: 'PUT',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ ...acfg, aliases: { fast: ['ghost:model'] } }),
+});
+check('admin PUT 非法配置 → 400 且不写文件', r.status === 400);
+check('非法保存后配置未被破坏', loadConfig(ADMIN_CFG).providers.mock.api_key === expectKey);
 
 // —— 4. failover：mock 进入故障模式后请求应 502 聚合错误 ——
 failMode = true;

@@ -1,5 +1,5 @@
-# 本地 mock 上游：OpenAI 兼容 /v1/chat/completions（含流式），用于无真实 key 时自测网关
-# 用法: bun scripts/mock-upstream.ts [端口，默认 9999]
+// 本地 mock 上游：OpenAI 兼容 /v1/chat/completions（含流式），用于无真实 key 时自测网关
+// 用法: bun scripts/mock-upstream.ts [端口，默认 9999]
 Bun.serve({
   port: Number(process.argv[3] ?? 9999),
   async fetch(req) {

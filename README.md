@@ -15,6 +15,7 @@ LLM API 中转网关：在一个配置文件里配置多家运营商的模型（
 - **配置热加载**：改 `config.json` 立即生效，无需重启
 - **请求日志**：控制台每请求一行摘要 + `access.log`（JSONL）逐请求记录 token 用量，可开关
 - **密钥支持环境变量**：`api_key` 可以写 `${ENV_VAR}` 引用环境变量
+- **Web 配置界面**：`/admin` 下的 SPA（Vite+Vue3+Naive UI），可视化编辑 provider/别名/密钥/默认模型，保存即校验并热加载；仅限本机回环访问，密钥默认掩码显示
 
 ## 快速开始
 
@@ -37,6 +38,21 @@ bun start            # 等价于 bun src/index.ts
 # 开发模式（文件变更自动重启）: bun dev
 # 指定配置文件: bun src/index.ts -c /path/to/config.json
 ```
+
+## Web 配置界面（/admin）
+
+不用手改 JSON，浏览器里可视化编辑配置：
+
+```bash
+bun run build:admin   # 构建前端（Vite 产物到 admin/dist/，由网关静态托管）
+bun start             # 启动网关，打开 http://127.0.0.1:8787/admin
+```
+
+- **保存 = 校验通过后原子写回 config.json 并热加载生效**，config.json 始终是唯一真相源
+- 可编辑：providers（base_url/api_key/模型列表 + 每个 provider 的"测试连接"按钮）、aliases（别名 → 有序 `provider:model`，顺序即 failover 顺序）、keys（下游密钥）、默认模型
+- port / host / timeout 等启动参数只读展示（修改需编辑 config.json 后重启）
+- **安全**：`/admin/*` 仅允许本机回环访问（非 127.0.0.1/::1 一律 403），与 `host` 是否 0.0.0.0 无关；密钥默认掩码显示（保留前 3 后 3），编辑时留空 = 保持原值
+- 开发模式：`bun run dev:admin` 起 Vite dev server（端口 5173，代理 `/admin/api` 到网关），配合 `bun run dev` 热更新前端
 
 启动后服务监听在配置的 `host:port`（默认 `http://127.0.0.1:8787`）。
 

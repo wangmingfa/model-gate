@@ -16,3 +16,7 @@
 - **access log（请求日志）**：JSONL 格式的逐请求记录（时间、key、alias、真实模型、token 用量、耗时、是否流式），可开关。
 - **默认模型**：agent 未指定 model 时使用的 alias。
 - **上游密钥插值**：api_key 以 `${VAR}` 开头时从环境变量读取，否则按字面量使用。
+- **administrator（管理员）**：操作 Web 配置界面的人，与 consumer（使用方/agent）是两类主体。管理界面仅限本机回环访问、免密码，不参与 agent 的 keys 鉴权。
+- **admin UI（配置界面）**：`/admin/*` 下的 Web 界面（SPA），用于编辑 config。保存 = 校验通过后原子写回 config.json，复用热加载生效；config.json 始终是唯一真相源。
+- **掩码显示（masked display）**：管理界面中密钥的展示形式（保留前 3 后 3，如 `sk-****abc`），编辑时留空表示保持原值。
+- **测试连接（connection test）**：管理界面针对单个 provider 发起的连通性验证请求（1-token），使用后端持有的真实密钥，不回显给前端。

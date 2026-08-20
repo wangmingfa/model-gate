@@ -42,12 +42,13 @@ setInterval(() => {
   }
 }, 1000);
 
-const app = createApp(() => cfg);
+const app = createApp(() => cfg, { configPath });
 
 Bun.serve({
   hostname: cfg.host,
   port: cfg.port,
-  fetch: app.fetch,
+  // 把 Bun server 作为 env 传入，让 /admin 的回环检查能拿到 requestIP
+  fetch: (req, server) => app.fetch(req, server),
 });
 
 console.log(`[model-gate] 已启动: http://${cfg.host}:${cfg.port}（配置: ${configPath}）`);
