@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
-import { useMessage, NIcon } from 'naive-ui';
+import { ref, onMounted, computed, h } from 'vue';
+import { useMessage, NIcon, NDropdown } from 'naive-ui';
 import {
   NCard,
   NForm,
@@ -27,6 +27,7 @@ import {
   LinkOutline,
   LockClosedOutline,
   AlertCircleOutline,
+  PersonCircleOutline,
 } from '@vicons/ionicons5';
 import { getConfig, saveConfig, testConnection, authStatus, login, logout, type ConfigDraft } from './api';
 
@@ -77,6 +78,18 @@ async function onLogout(): Promise<void> {
     // 忽略，前端直接回到登录页
   }
   authState.value = 'need-login';
+}
+
+// 右上角用户菜单（登出收敛到菜单里，不与保存按钮并列）
+const userMenuOptions = [
+  {
+    label: '登出',
+    key: 'logout',
+    icon: () => h(NIcon, null, { default: () => h(LogOutOutline) }),
+  },
+];
+function onUserMenuSelect(key: string): void {
+  if (key === 'logout') void onLogout();
 }
 
 // ---- 编辑态（键值对象转成可编辑行）----
@@ -242,10 +255,17 @@ async function onSave(): Promise<void> {
             </p>
           </div>
         </div>
-        <n-button type="primary" :loading="saving" @click="onSave">
-          <template #icon><n-icon><SaveOutline /></n-icon></template>
-          保存
-        </n-button>
+        <n-space align="center">
+          <n-button type="primary" :loading="saving" @click="onSave">
+            <template #icon><n-icon><SaveOutline /></n-icon></template>
+            保存
+          </n-button>
+          <n-dropdown trigger="click" :options="userMenuOptions" @select="onUserMenuSelect">
+            <n-button quaternary circle size="small" aria-label="用户菜单">
+              <n-icon :size="22"><PersonCircleOutline /></n-icon>
+            </n-button>
+          </n-dropdown>
+        </n-space>
       </div>
 
       <n-alert v-if="loadError" type="error" :title="'加载配置失败'" style="margin-bottom: 16px">
@@ -355,14 +375,6 @@ async function onSave(): Promise<void> {
           <n-button size="small" @click="addAlias">+ 添加别名</n-button>
         </n-space>
       </n-card>
-
-      <n-divider />
-      <n-space justify="center">
-        <n-button quaternary type="error" size="small" @click="onLogout">
-          <template #icon><n-icon><LogOutOutline /></n-icon></template>
-          登出
-        </n-button>
-      </n-space>
       </template>
     </template>
   </div>
