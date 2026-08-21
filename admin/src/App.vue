@@ -304,37 +304,45 @@ async function onSave(): Promise<void> {
                 <span style="font-weight: 600">provider #{{ i + 1 }}</span>
                 <n-button size="small" type="error" quaternary @click="providers.splice(i, 1)">删除</n-button>
               </n-space>
-              <n-space>
-                <n-form-item label="名称" style="margin-bottom: 0">
-                  <n-input v-model:value="p.name" placeholder="如 deepseek" style="width: 160px" />
-                </n-form-item>
-                <n-form-item label="base_url" style="margin-bottom: 0; flex: 1; min-width: 0">
-                  <n-input
-                    v-model:value="p.base_url"
-                    placeholder="https://api.deepseek.com/v1"
-                    style="width: 100%"
-                  />
-                </n-form-item>
-              </n-space>
-              <n-space align="center">
-                <n-form-item label="api_key（留空保持原值）" style="margin-bottom: 0; flex: 1; min-width: 0">
-                  <n-input
-                    v-model:value="p.api_key"
-                    type="password"
-                    show-password-on="click"
-                    placeholder="留空保持原值"
-                    style="width: 100%"
-                  />
-                </n-form-item>
-                <n-button
-                  size="small"
-                  :loading="testStates[p.name]?.testing"
-                  :type="testStates[p.name]?.ok ? 'success' : 'default'"
-                  @click="onTest(p)"
-                >
-                  测试连接
-                </n-button>
-              </n-space>
+              <div style="display: flex; align-items: baseline; gap: 12px">
+                <div style="width: 160px; flex-shrink: 0">
+                  <n-form-item label="名称" style="margin-bottom: 0">
+                    <n-input v-model:value="p.name" placeholder="如 deepseek" />
+                  </n-form-item>
+                </div>
+                <div style="flex: 1; min-width: 0">
+                  <n-form-item label="base_url" style="margin-bottom: 0">
+                    <n-input
+                      v-model:value="p.base_url"
+                      placeholder="https://api.deepseek.com/v1"
+                      style="width: 100%"
+                    />
+                  </n-form-item>
+                </div>
+              </div>
+              <div style="display: flex; align-items: baseline; gap: 12px">
+                <div style="flex: 1; min-width: 0">
+                  <n-form-item label="api_key（留空保持原值）" style="margin-bottom: 0">
+                    <n-input
+                      v-model:value="p.api_key"
+                      type="password"
+                      show-password-on="click"
+                      placeholder="留空保持原值"
+                      style="width: 100%"
+                    />
+                  </n-form-item>
+                </div>
+                <div style="flex-shrink: 0">
+                  <n-button
+                    size="small"
+                    :loading="testStates[p.name]?.testing"
+                    :type="testStates[p.name]?.ok ? 'success' : 'default'"
+                    @click="onTest(p)"
+                  >
+                    测试连接
+                  </n-button>
+                </div>
+              </div>
               <div v-if="testStates[p.name]?.result" style="font-size: 12px">
                 <n-tag :type="testStates[p.name]?.ok ? 'success' : 'error'" size="small">
                   {{ testStates[p.name]?.result }}
