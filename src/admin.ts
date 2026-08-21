@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Config } from './config';
 import { validateConfig } from './config';
+import { adminAssets } from './admin-assets.generated';
 
 /** 回环检查所需的 Bun server 形态（app.fetch(req, server) 时 c.env = server） */
 export interface LoopbackEnv {
@@ -130,19 +131,39 @@ function atomicWrite(path: string, content: string): void {
   renameSync(tmp, path); // POSIX 原子替换，热加载轮询随之感知 mtime 变化
 }
 
+/** 内容类型映射（静态托管用） */
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+};
+
 async function serveSpa(c: Context, dist: string, rel: string): Promise<Response> {
   const safe = rel
     .split('/')
     .filter((s) => s && s !== '..')
     .join('/');
+  const key = safe || 'index.html';
+  // 优先读内嵌产物（单文件打包 bun xxx.js 时无磁盘 dist）
+  const embedded = adminAssets[key];
+  if (embedded !== undefined) {
+    const ext = key.slice(key.lastIndexOf('.'));
+    return new Response(embedded, { headers: { 'content-type': MIME[ext] ?? 'application/octet-stream' } });
+  }
+  // 回退：磁盘 dist（开发/未重新生成内嵌时）
   const filePath = safe ? resolve(dist, safe) : resolve(dist, 'index.html');
   if (!filePath.startsWith(`${dist}/`)) return c.text('forbidden', 403);
   let f = Bun.file(filePath);
   if (await f.exists()) return new Response(f);
-  // SPA fallback
+  // SPA fallback（内嵌与磁盘都试试 index.html）
+  const fallback = adminAssets['index.html'];
+  if (fallback !== undefined) return new Response(fallback, { headers: { 'content-type': 'text/html; charset=utf-8' } });
   f = Bun.file(resolve(dist, 'index.html'));
   if (await f.exists()) return new Response(f, { headers: { 'content-type': 'text/html' } });
-  return c.text('admin UI 未构建：先运行 bun run build:admin', 404);
+  return c.text('admin UI 未构建：先运行 bun run build:admin 或 bun run embed:admin', 404);
 }
 
 /** 构建管理界面应用（挂载到 /admin 下） */
