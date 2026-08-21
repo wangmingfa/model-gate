@@ -15,6 +15,7 @@ import {
   NAlert,
   NTag,
   NStatistic,
+  NModal,
 } from 'naive-ui';
 import {
   SettingsOutline,
@@ -113,6 +114,10 @@ const startup = ref<{ port: number; host: string; timeout_seconds: number; acces
 const defaultModel = ref('');
 const keys = ref<ClientKeyDraft[]>([]);
 const newKeyName = ref(''); // 添加密钥时填写的名称
+// 新密钥弹窗（完整密钥只在弹窗中展示一次）
+const showNewKeyModal = ref(false);
+const pendingKeyName = ref('');
+const pendingKeyValue = ref('');
 const providers = ref<ProviderRow[]>([]);
 const aliases = ref<AliasRow[]>([]);
 const loading = ref(true);
@@ -168,7 +173,7 @@ function maskKey(key: string): string {
   return `${key.slice(0, 3)}****${key.slice(-3)}`;
 }
 
-/** 添加密钥：填名称 → 自动生成 sk- + 32 位随机十六进制密钥，并立即保存（列表只显示掩码，完整值靠复制按钮获取） */
+/** 添加密钥：填名称 → 自动生成 sk- + 32 位随机十六进制密钥，并立即保存（完整密钥只在弹窗中展示一次） */
 async function addKey(): Promise<void> {
   const name = newKeyName.value.trim();
   if (!name) {
@@ -182,10 +187,18 @@ async function addKey(): Promise<void> {
   const newKey: ClientKeyDraft = { name, key: generateKey(), created_at: new Date().toISOString() };
   keys.value.push(newKey);
   newKeyName.value = '';
-  await saveKeysChange(`已生成密钥 ${name} 并保存，点击列表中的复制按钮获取完整密钥`);
-  // 保存失败时回滚新增（saveKeysChange 内部已恢复 keys.value）
+  await saveKeysChange(`已生成密钥 ${name} 并保存`);
+  // 保存失败时 saveKeysChange 已回滚；成功则弹窗展示完整密钥（一次性，供复制）
   if (!keys.value.includes(newKey)) return;
-  void copyKey(newKey.key); // 自动复制完整密钥到剪贴板，避免用户在页面上看到明文
+  pendingKeyName.value = newKey.name;
+  pendingKeyValue.value = newKey.key;
+  showNewKeyModal.value = true;
+}
+
+/** 弹窗中的"复制"按钮：优先 Clipboard API，失败降级 execCommand */
+async function copyPendingKey(): Promise<void> {
+  if (await copyText(pendingKeyValue.value)) message.success('完整密钥已复制到剪贴板');
+  else message.error('复制失败，请手动选择复制');
 }
 
 /** 删除密钥（已有密钥只读，只能删除），并立即保存 */
@@ -208,14 +221,35 @@ async function saveKeysChange(successMsg: string): Promise<void> {
   }
 }
 
+/** 复制文本到剪贴板：优先 Clipboard API，不可用（非 HTTPS/localhost）时降级 execCommand */
+async function copyText(text: string): Promise<boolean> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // 降级到 execCommand
+    }
+  }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 /** 复制完整密钥到剪贴板（UI 不展示明文） */
 async function copyKey(key: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(key);
-    message.success('完整密钥已复制到剪贴板');
-  } catch {
-    message.error('复制失败，请手动复制');
-  }
+  if (await copyText(key)) message.success('完整密钥已复制到剪贴板');
+  else message.error('复制失败，请手动选择复制');
 }
 
 /** 格式化添加时间为本地可读形式 */
@@ -383,6 +417,41 @@ async function onSave(): Promise<void> {
           <div v-if="keys.length === 0" style="color: #999; font-size: 12px">还没有密钥，填名称添加一个（密钥自动生成）</div>
         </n-space>
       </n-card>
+
+      <!-- 新密钥弹窗：完整密钥只在此时展示一次，供复制 -->
+      <n-modal
+        v-model:show="showNewKeyModal"
+        preset="card"
+        :style="{ width: '520px', borderRadius: '14px' }"
+        :mask-closable="false"
+        :close-on-esc="false"
+        :title="`密钥「${pendingKeyName}」已生成`"
+      >
+        <p style="margin: 0 0 12px; color: #666; font-size: 13px">
+          请立即复制并妥善保存。此完整密钥仅在本次展示，关闭后页面只显示掩码，无法再查看。
+        </p>
+        <div
+          style="
+            background: #f5f5f5;
+            border: 1px dashed #c4b5fd;
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 13px;
+            word-break: break-all;
+            user-select: all;
+            margin-bottom: 16px;
+          "
+        >
+          <code style="color: #4f46e5">{{ pendingKeyValue }}</code>
+        </div>
+        <n-space justify="end">
+          <n-button @click="showNewKeyModal = false">关闭</n-button>
+          <n-button type="primary" @click="copyPendingKey">
+            <template #icon><n-icon><SaveOutline /></n-icon></template>
+            复制密钥
+          </n-button>
+        </n-space>
+      </n-modal>
 
       <n-card size="small" style="margin-bottom: 16px" class="soft-card">
         <template #header>
