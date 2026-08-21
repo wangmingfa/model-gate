@@ -1,8 +1,22 @@
 // 端到端冒烟测试：真实起 mock 上游 + 网关，走真实 HTTP 验证各端点与 failover、热加载。
-// 用法: bun scripts/smoke.ts   （需先有 config.json，且未被占用 8787/9999 端口）
-import { readFileSync, writeFileSync } from 'node:fs';
+// 用法: bun scripts/smoke.ts   （自包含，无需 config.json；需未被占用 8787/9999 端口）
+import { writeFileSync } from 'node:fs';
 import { loadConfig } from '../src/config';
 import { createApp } from '../src/app';
+
+// 内置 smoke 配置：自包含（provider 指向本地 mock 9999），不依赖用户 config.json 的具体内容
+const smokeConfig: Record<string, unknown> = {
+  port: 8787,
+  host: '127.0.0.1',
+  default_model: 'fast',
+  timeout_seconds: 60,
+  access_log: true,
+  keys: [{ name: 'smoke', key: 'sk-smoke', created_at: '2026-01-01T00:00:00.000Z' }],
+  providers: {
+    mock: { base_url: 'http://127.0.0.1:9999/v1', api_key: 'sk-mock', models: ['mock-model'] },
+  },
+  aliases: { fast: ['mock:mock-model'] },
+};
 
 let failures = 0;
 function check(name: string, ok: boolean, extra = ''): void {
@@ -49,14 +63,14 @@ const mock = Bun.serve({
   },
 });
 
-// —— 2. 起网关（config.json 复制到临时文件供 admin 保存用，避免污染仓库里的真实配置）——
-const cfg = loadConfig('config.json');
+// —— 2. 起网关（内置 mock 配置写入临时文件供 admin 保存用，不触碰仓库 config.json）——
 const ADMIN_CFG = '/tmp/mg-smoke-admin.json';
-writeFileSync(ADMIN_CFG, readFileSync('config.json', 'utf-8'));
+writeFileSync(ADMIN_CFG, JSON.stringify(smokeConfig, null, 2));
+const cfg = loadConfig(ADMIN_CFG);
 const app = createApp(() => cfg, { configPath: ADMIN_CFG });
 const gate = Bun.serve({ hostname: cfg.host, port: cfg.port, fetch: app.fetch });
 const BASE = `http://127.0.0.1:${cfg.port}`;
-const AUTH = { authorization: `Bearer ${cfg.keys[0]}` };
+const AUTH = { authorization: `Bearer ${cfg.keys[0].key}` };
 await sleep(300);
 
 // —— 3. 各端点 ——
@@ -118,8 +132,14 @@ check(
 );
 
 r = await fetch(`${BASE}/admin/api/config`);
-const acfg = (await r.json()) as { providers: Record<string, { api_key: string }>; keys: string[] };
-check('admin GET /api/config → 200 且密钥已掩码', r.status === 200 && acfg.providers?.mock?.api_key?.includes('****'));
+const acfg = (await r.json()) as {
+  providers: Record<string, { api_key: string }>;
+  keys: Array<{ name: string; key: string; created_at: string }>;
+};
+check(
+  'admin GET /api/config → 200 且密钥已掩码',
+  r.status === 200 && acfg.providers?.mock?.api_key?.includes('****') && acfg.keys[0]?.key?.includes('****'),
+);
 
 // 非回环来源未登录 → 401 auth_required（admin 安全边界，依赖 env.requestIP 接线）
 const remoteReq = await app.request(
@@ -203,7 +223,7 @@ await gate.stop();
 
 // —— 5. 热加载：用 index.ts 子进程 + 临时配置实测轮询重载 ——
 const tmpCfgPath = '/tmp/mg-smoke-reload.json';
-const baseCfg = JSON.parse(readFileSync('config.json', 'utf-8')) as Record<string, unknown>;
+const baseCfg: Record<string, unknown> = { ...smokeConfig, port: 8788 };
 writeFileSync(tmpCfgPath, JSON.stringify({ ...baseCfg, port: 8788, aliases: { fast: ['mock:mock-model'] } }));
 const proc = Bun.spawn(['bun', 'src/index.ts', '-c', tmpCfgPath], { stdout: 'pipe', stderr: 'pipe' });
 try {

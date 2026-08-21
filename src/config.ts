@@ -10,6 +10,16 @@ export interface ProviderConfig {
   models: string[];
 }
 
+/** 下游密钥：带名称与添加时间的对象（密钥由管理界面自动生成，已有密钥不可编辑只能删除） */
+export interface ClientKey {
+  /** 密钥名称，如 "Claude"、"Cursor" */
+  name: string;
+  /** 密钥值，agent 连入网关时携带 */
+  key: string;
+  /** 添加时间（ISO 字符串），UI 展示用 */
+  created_at: string;
+}
+
 /** 完整配置文件结构 */
 export interface Config {
   port: number;
@@ -20,8 +30,8 @@ export interface Config {
   timeout_seconds: number;
   /** 是否写 access.log（JSONL 逐请求记录） */
   access_log: boolean;
-  /** 下游鉴权密钥列表，agent 必须携带其中之一 */
-  keys: string[];
+  /** 下游鉴权密钥列表（带名称与添加时间），agent 必须携带其中一个 key 值 */
+  keys: ClientKey[];
   /**
    * 管理界面密码（非回环访问 /admin 时登录用），支持 ${ENV_VAR} 插值；
    * 留空 = 未配置（此时非回环访问登录页会提示去配置文件配置）
@@ -97,10 +107,28 @@ export function validateConfig(raw: unknown, path = '<config>'): Config {
 
   const access_log = r.access_log !== false; // 默认开启
 
-  const keysRaw = r.keys;
-  if (!Array.isArray(keysRaw) || keysRaw.length === 0) fail('keys 必须是非空数组（下游鉴权密钥）');
-  const keys = keysRaw as string[];
-  if (!keys.every((k) => typeof k === 'string' && k.length > 0)) fail('keys 的每一项必须是非空字符串');
+  const keysRaw: unknown[] = Array.isArray(r.keys) ? r.keys : []; // TS 5.9 对 Record 索引的 Array.isArray 收窄不可靠
+  if (keysRaw.length === 0) fail('keys 必须是非空数组（下游鉴权密钥）');
+  const keys: ClientKey[] = [];
+  for (const item of keysRaw) {
+    if (typeof item !== 'object' || item === null) fail('keys 的每一项必须是对象 { name, key, created_at }');
+    const k = item as Record<string, unknown>;
+    if (typeof k.name !== 'string' || k.name.length === 0) fail('keys 每一项的 name 必须是非空字符串');
+    if (typeof k.key !== 'string' || k.key.length === 0) fail(`keys 每一项的 key 必须是非空字符串（${k.name}）`);
+    if (typeof k.created_at !== 'string' || !Number.isFinite(Date.parse(k.created_at))) {
+      fail(`keys 每一项的 created_at 必须是合法 ISO 时间（${k.name}）`);
+    }
+    // TS 5.9 对 Record 索引的 typeof 收窄不可靠，显式断言
+    const name = k.name as string;
+    const key = k.key as string;
+    const created_at = k.created_at as string;
+    keys.push({ name, key, created_at });
+  }
+  // 名称与 key 值都不允许重复
+  const names = new Set(keys.map((k) => k.name));
+  if (names.size !== keys.length) fail('keys 的名称不允许重复');
+  const values = new Set(keys.map((k) => k.key));
+  if (values.size !== keys.length) fail('keys 的密钥值不允许重复');
 
   const providersRaw = r.providers;
   if (!isPlainObject(providersRaw)) fail('providers 必须是对象');

@@ -29,7 +29,7 @@ import {
   AlertCircleOutline,
   PersonCircleOutline,
 } from '@vicons/ionicons5';
-import { getConfig, saveConfig, testConnection, authStatus, login, logout, type ConfigDraft } from './api';
+import { getConfig, saveConfig, testConnection, authStatus, login, logout, generateKey, type ConfigDraft, type ClientKeyDraft } from './api';
 
 const message = useMessage();
 
@@ -111,7 +111,8 @@ const startup = ref<{ port: number; host: string; timeout_seconds: number; acces
   access_log: true,
 });
 const defaultModel = ref('');
-const keys = ref<string[]>([]);
+const keys = ref<ClientKeyDraft[]>([]);
+const newKeyName = ref(''); // 添加密钥时填写的名称
 const providers = ref<ProviderRow[]>([]);
 const aliases = ref<AliasRow[]>([]);
 const loading = ref(true);
@@ -158,6 +159,36 @@ function addProvider(): void {
 }
 function addAlias(): void {
   aliases.value.push({ name: '', targets: [] });
+}
+
+/** 添加密钥：填名称 → 自动生成 sk- + 32 位随机十六进制密钥 */
+function addKey(): void {
+  const name = newKeyName.value.trim();
+  if (!name) {
+    message.warning('请先填写密钥名称');
+    return;
+  }
+  if (keys.value.some((k) => k.name === name)) {
+    message.warning(`名称 "${name}" 已存在`);
+    return;
+  }
+  keys.value.push({ name, key: generateKey(), created_at: new Date().toISOString() });
+  newKeyName.value = '';
+  message.success(`已生成密钥 ${name}，点击保存生效`);
+}
+
+/** 删除密钥（已有密钥只读，只能删除） */
+function removeKey(index: number): void {
+  const [removed] = keys.value.splice(index, 1);
+  message.success(`已删除密钥 ${removed.name}，点击保存生效`);
+}
+
+/** 格式化添加时间为本地可读形式 */
+function formatTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 async function onTest(provider: ProviderRow): Promise<void> {
@@ -290,7 +321,28 @@ async function onSave(): Promise<void> {
         <template #header>
           <span class="card-title"><n-icon :size="16"><KeyOutline /></n-icon> 下游密钥（keys，agent 连入网关用）</span>
         </template>
-        <n-dynamic-input v-model:value="keys" placeholder="sk-xxx" />
+        <!-- 添加：填名称，密钥自动生成 -->
+        <n-space style="margin-bottom: 12px">
+          <n-input v-model:value="newKeyName" placeholder="密钥名称，如 Claude / Cursor" style="width: 260px" @keyup.enter="addKey" />
+          <n-button type="primary" @click="addKey">
+            <template #icon><n-icon><SaveOutline /></n-icon></template>
+            添加密钥
+          </n-button>
+        </n-space>
+        <!-- 已有密钥：只读（名称/掩码/添加时间），只能删除 -->
+        <n-space vertical>
+          <div
+            v-for="(k, i) in keys"
+            :key="k.name"
+            style="display: flex; align-items: center; gap: 12px; border: 1px solid #eee; border-radius: 8px; padding: 8px 12px"
+          >
+            <n-tag type="primary" size="small" style="width: 110px; justify-content: center">{{ k.name }}</n-tag>
+            <code style="flex: 1; min-width: 0; color: #666; font-size: 12px; word-break: break-all">{{ k.key }}</code>
+            <span style="color: #999; font-size: 12px; white-space: nowrap">{{ formatTime(k.created_at) }}</span>
+            <n-button size="tiny" type="error" quaternary @click="removeKey(i)">删除</n-button>
+          </div>
+          <div v-if="keys.length === 0" style="color: #999; font-size: 12px">还没有密钥，填名称添加一个（密钥自动生成）</div>
+        </n-space>
       </n-card>
 
       <n-card size="small" style="margin-bottom: 16px" class="soft-card">

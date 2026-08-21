@@ -66,7 +66,7 @@ export function createApp(
     const auth = c.req.header('authorization') ?? '';
     const key = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
     const cfg = getConfig();
-    if (!cfg.keys.includes(key)) {
+    if (!cfg.keys.some((k) => k.key === key)) {
       return c.json(
         {
           error: {

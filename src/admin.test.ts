@@ -12,7 +12,10 @@ const base: Config = {
   default_model: 'fast',
   timeout_seconds: 60,
   access_log: false,
-  keys: ['sk-agent-one', 'sk-agent-two'],
+  keys: [
+    { name: 'agent-one', key: 'sk-agent-one', created_at: '2026-01-01T00:00:00.000Z' },
+    { name: 'agent-two', key: 'sk-agent-two', created_at: '2026-01-02T00:00:00.000Z' },
+  ],
   admin_password: '',
   providers: {
     deepseek: { base_url: 'https://api.deepseek.com/v1', api_key: 'sk-real-deepseek-key', models: ['deepseek-chat'] },
@@ -154,8 +157,11 @@ describe('GET /admin/api/config', () => {
     const res = await adminReq('/api/config');
     const j = (await res.json()) as Record<string, any>;
     expect(j.providers.deepseek.api_key).toBe('sk-****key');
-    expect(j.keys).toEqual(['sk-****one', 'sk-****two']);
-    expect(j.keys).not.toContain('sk-agent-one');
+    expect(j.keys).toEqual([
+      { name: 'agent-one', key: 'sk-****one', created_at: '2026-01-01T00:00:00.000Z' },
+      { name: 'agent-two', key: 'sk-****two', created_at: '2026-01-02T00:00:00.000Z' },
+    ]);
+    expect(JSON.stringify(j.keys)).not.toContain('sk-agent-one');
   });
 });
 
@@ -228,11 +234,20 @@ describe('PUT /admin/api/config', () => {
 
   test('keys 中掩码形式的条目保持原值，新增条目生效', async () => {
     writeConfig(base);
-    const draft = { ...base, keys: ['sk-****one', 'sk-new-key'] };
+    const draft = {
+      ...base,
+      keys: [
+        { name: 'agent-one', key: 'sk-****one', created_at: '2026-01-01T00:00:00.000Z' },
+        { name: 'new-key', key: 'sk-new-key', created_at: '2026-02-01T00:00:00.000Z' },
+      ],
+    };
     const res = await adminReq('/api/config', { method: 'PUT', body: JSON.stringify(draft) });
     expect(res.status).toBe(200);
     const onDisk = loadConfig(tmpPath);
-    expect(onDisk.keys).toEqual(['sk-agent-one', 'sk-new-key']);
+    expect(onDisk.keys).toEqual([
+      { name: 'agent-one', key: 'sk-agent-one', created_at: '2026-01-01T00:00:00.000Z' },
+      { name: 'new-key', key: 'sk-new-key', created_at: '2026-02-01T00:00:00.000Z' },
+    ]);
   });
 });
 

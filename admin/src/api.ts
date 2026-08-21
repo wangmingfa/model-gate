@@ -7,15 +7,30 @@ export interface ProviderDraft {
   models: string[];
 }
 
+/** 下游密钥：名称 + 密钥值（已有密钥后端返回掩码形式）+ 添加时间 */
+export interface ClientKeyDraft {
+  name: string;
+  key: string;
+  created_at: string;
+}
+
 export interface ConfigDraft {
   port: number;
   host: string;
   default_model: string;
   timeout_seconds: number;
   access_log: boolean;
-  keys: string[];
+  keys: ClientKeyDraft[];
   providers: Record<string, ProviderDraft>;
   aliases: Record<string, string[]>;
+}
+
+/** 生成新密钥：sk- + 32 位随机十六进制（浏览器 crypto 随机源） */
+export function generateKey(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  return `sk-${hex}`;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

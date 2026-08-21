@@ -8,7 +8,7 @@ const cfg: Config = {
   default_model: 'fast',
   timeout_seconds: 60,
   access_log: false,
-  keys: ['sk-valid'],
+  keys: [{ name: 'valid', key: 'sk-valid', created_at: '2026-01-01T00:00:00.000Z' }],
   admin_password: '',
   providers: {
     deepseek: { base_url: 'https://api.deepseek.com/v1', api_key: 'sk-ds', models: ['deepseek-chat'] },

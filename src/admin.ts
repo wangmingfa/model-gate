@@ -103,15 +103,24 @@ function resolveApiKey(draftVal: unknown, resolvedCur: string | undefined, rawCu
   return draftVal;
 }
 
-/** PUT 时解析 keys 数组：掩码条目按顺序还原为原始值，新增条目原样保留 */
+/**
+ * PUT 时解析 keys 数组（新结构 {name,key,created_at}[]）：
+ * - 掩码条目（key 等于当前掩码形式）→ 按 name 还原为原始值（保留 raw 中的原始 key）
+ * - 新增条目 → 原样保留（name + 完整 key + created_at）
+ */
 function resolveKeys(draftKeys: unknown, current: Config, raw: Record<string, unknown> | null): unknown {
   if (!Array.isArray(draftKeys)) return draftKeys;
-  const rawKeys = Array.isArray(raw?.keys) ? (raw.keys as unknown[]) : [];
+  const rawKeys = Array.isArray(raw?.keys) ? (raw.keys as Record<string, unknown>[]) : [];
   return draftKeys.map((k) => {
-    if (typeof k !== 'string') return k;
-    const idx = current.keys.findIndex((cur) => maskKey(cur) === k);
-    if (idx >= 0) return rawKeys[idx] ?? current.keys[idx];
-    return k;
+    if (typeof k !== 'object' || k === null) return k;
+    const item = k as Record<string, unknown>;
+    if (typeof item.name !== 'string' || typeof item.key !== 'string') return item;
+    const cur = current.keys.find((c) => c.name === item.name);
+    if (cur && maskKey(cur.key) === item.key) {
+      const rawKey = rawKeys.find((r) => r.name === item.name)?.key;
+      return { ...item, key: typeof rawKey === 'string' ? rawKey : cur.key };
+    }
+    return item;
   });
 }
 
@@ -208,13 +217,13 @@ export function createAdminApp(getConfig: () => Config, configPath: string | und
     return c.json({ ok: true }, { status: 200, headers: { 'set-cookie': clearSessionCookie() } });
   });
 
-  // 返回掩码后的完整配置（前端编辑底稿）
+  // 返回掩码后的完整配置（前端编辑底稿；keys 的 key 值掩码，name/created_at 保留）
   admin.get('/api/config', (c) => {
     const cfg = getConfig();
     const { admin_password, ...rest } = cfg; // admin_password 不进编辑范围
     return c.json({
       ...rest,
-      keys: cfg.keys.map(maskKey),
+      keys: cfg.keys.map((k) => ({ ...k, key: maskKey(k.key) })),
       providers: Object.fromEntries(
         Object.entries(cfg.providers).map(([name, p]) => [name, { ...p, api_key: maskKey(p.api_key) }]),
       ),

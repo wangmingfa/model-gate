@@ -8,7 +8,10 @@ const base = {
   default_model: 'fast',
   timeout_seconds: 60,
   access_log: true,
-  keys: ['sk-a', 'sk-b'],
+  keys: [
+    { name: 'a', key: 'sk-a', created_at: '2026-01-01T00:00:00.000Z' },
+    { name: 'b', key: 'sk-b', created_at: '2026-01-02T00:00:00.000Z' },
+  ],
   providers: {
     deepseek: {
       base_url: 'https://api.deepseek.com/v1/',
@@ -37,7 +40,11 @@ describe('validateConfig', () => {
   });
 
   test('缺省字段取默认值', () => {
-    const cfg = validateConfig({ keys: ['k'], providers: { p: { base_url: 'https://x.com', api_key: 'k', models: ['m'] } }, aliases: { a: ['p:m'] } });
+    const cfg = validateConfig({
+      keys: [{ name: 'k', key: 'sk-k', created_at: '2026-01-01T00:00:00.000Z' }],
+      providers: { p: { base_url: 'https://x.com', api_key: 'k', models: ['m'] } },
+      aliases: { a: ['p:m'] },
+    });
     expect(cfg.port).toBe(8787);
     expect(cfg.host).toBe('127.0.0.1');
     expect(cfg.timeout_seconds).toBe(60);
