@@ -168,8 +168,8 @@ function maskKey(key: string): string {
   return `${key.slice(0, 3)}****${key.slice(-3)}`;
 }
 
-/** 添加密钥：填名称 → 自动生成 sk- + 32 位随机十六进制密钥（列表只显示掩码，完整值靠复制按钮获取） */
-function addKey(): void {
+/** 添加密钥：填名称 → 自动生成 sk- + 32 位随机十六进制密钥，并立即保存（列表只显示掩码，完整值靠复制按钮获取） */
+async function addKey(): Promise<void> {
   const name = newKeyName.value.trim();
   if (!name) {
     message.warning('请先填写密钥名称');
@@ -179,9 +179,33 @@ function addKey(): void {
     message.warning(`名称 "${name}" 已存在`);
     return;
   }
-  keys.value.push({ name, key: generateKey(), created_at: new Date().toISOString() });
+  const newKey: ClientKeyDraft = { name, key: generateKey(), created_at: new Date().toISOString() };
+  keys.value.push(newKey);
   newKeyName.value = '';
-  message.success(`已生成密钥 ${name}，点击列表中的复制按钮获取完整密钥，保存后生效`);
+  await saveKeysChange(`已生成密钥 ${name} 并保存，点击列表中的复制按钮获取完整密钥`);
+  // 保存失败时回滚新增（saveKeysChange 内部已恢复 keys.value）
+  if (!keys.value.includes(newKey)) return;
+  void copyKey(newKey.key); // 自动复制完整密钥到剪贴板，避免用户在页面上看到明文
+}
+
+/** 删除密钥（已有密钥只读，只能删除），并立即保存 */
+async function removeKey(index: number): Promise<void> {
+  const [removed] = keys.value.splice(index, 1);
+  await saveKeysChange(`已删除密钥 ${removed.name} 并保存`);
+}
+
+/** 保存 keys 变更（添加/删除即自动保存）：成功后提示，失败则拉取服务端状态回滚本地编辑 */
+async function saveKeysChange(successMsg: string): Promise<void> {
+  saving.value = true;
+  try {
+    await saveConfig(buildDraft());
+    message.success(successMsg);
+  } catch (e) {
+    await load(); // 拉取服务端真实状态，回滚本地编辑
+    message.error(`保存失败：${(e as Error).message}`);
+  } finally {
+    saving.value = false;
+  }
 }
 
 /** 复制完整密钥到剪贴板（UI 不展示明文） */
@@ -192,12 +216,6 @@ async function copyKey(key: string): Promise<void> {
   } catch {
     message.error('复制失败，请手动复制');
   }
-}
-
-/** 删除密钥（已有密钥只读，只能删除） */
-function removeKey(index: number): void {
-  const [removed] = keys.value.splice(index, 1);
-  message.success(`已删除密钥 ${removed.name}，点击保存生效`);
 }
 
 /** 格式化添加时间为本地可读形式 */
@@ -227,28 +245,31 @@ async function onTest(provider: ProviderRow): Promise<void> {
   }
 }
 
+/** 由当前编辑态构造完整配置草稿（保存用） */
+function buildDraft(): ConfigDraft {
+  const providerMap: ConfigDraft['providers'] = {};
+  for (const p of providers.value) {
+    if (!p.name) throw new Error('provider 名称不能为空');
+    providerMap[p.name] = { base_url: p.base_url, api_key: p.api_key, models: p.models };
+  }
+  const aliasMap: ConfigDraft['aliases'] = {};
+  for (const a of aliases.value) {
+    if (!a.name) throw new Error('别名名称不能为空');
+    aliasMap[a.name] = a.targets;
+  }
+  return {
+    ...startup.value,
+    default_model: defaultModel.value,
+    keys: keys.value,
+    providers: providerMap,
+    aliases: aliasMap,
+  };
+}
+
 async function onSave(): Promise<void> {
   saving.value = true;
   try {
-    // 行 -> 键值对象（后端仍会做完整校验，这里只保证结构合法）
-    const providerMap: ConfigDraft['providers'] = {};
-    for (const p of providers.value) {
-      if (!p.name) throw new Error('provider 名称不能为空');
-      providerMap[p.name] = { base_url: p.base_url, api_key: p.api_key, models: p.models };
-    }
-    const aliasMap: ConfigDraft['aliases'] = {};
-    for (const a of aliases.value) {
-      if (!a.name) throw new Error('别名名称不能为空');
-      aliasMap[a.name] = a.targets;
-    }
-    const draft: ConfigDraft = {
-      ...startup.value,
-      default_model: defaultModel.value,
-      keys: keys.value,
-      providers: providerMap,
-      aliases: aliasMap,
-    };
-    await saveConfig(draft);
+    await saveConfig(buildDraft());
     message.success('已保存，热加载生效');
     await load(); // 重新拉取（密钥会重新掩码）
   } catch (e) {
