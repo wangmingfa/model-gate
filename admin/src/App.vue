@@ -162,6 +162,13 @@ function addAlias(): void {
 }
 
 /** 添加密钥：填名称 → 自动生成 sk- + 32 位随机十六进制密钥 */
+/** 密钥掩码：保留前 3 后 3，如 sk-****abc；短密钥全掩（与后端一致，避免明文展示） */
+function maskKey(key: string): string {
+  if (key.length <= 6) return '****';
+  return `${key.slice(0, 3)}****${key.slice(-3)}`;
+}
+
+/** 添加密钥：填名称 → 自动生成 sk- + 32 位随机十六进制密钥（列表只显示掩码，完整值靠复制按钮获取） */
 function addKey(): void {
   const name = newKeyName.value.trim();
   if (!name) {
@@ -174,7 +181,17 @@ function addKey(): void {
   }
   keys.value.push({ name, key: generateKey(), created_at: new Date().toISOString() });
   newKeyName.value = '';
-  message.success(`已生成密钥 ${name}，点击保存生效`);
+  message.success(`已生成密钥 ${name}，点击列表中的复制按钮获取完整密钥，保存后生效`);
+}
+
+/** 复制完整密钥到剪贴板（UI 不展示明文） */
+async function copyKey(key: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(key);
+    message.success('完整密钥已复制到剪贴板');
+  } catch {
+    message.error('复制失败，请手动复制');
+  }
 }
 
 /** 删除密钥（已有密钥只读，只能删除） */
@@ -329,7 +346,7 @@ async function onSave(): Promise<void> {
             添加密钥
           </n-button>
         </n-space>
-        <!-- 已有密钥：只读（名称/掩码/添加时间），只能删除 -->
+        <!-- 已有密钥：只读（名称/掩码/添加时间），只能删除；完整密钥仅复制不展示 -->
         <n-space vertical>
           <div
             v-for="(k, i) in keys"
@@ -337,8 +354,9 @@ async function onSave(): Promise<void> {
             style="display: flex; align-items: center; gap: 12px; border: 1px solid #eee; border-radius: 8px; padding: 8px 12px"
           >
             <n-tag type="primary" size="small" style="width: 110px; justify-content: center">{{ k.name }}</n-tag>
-            <code style="flex: 1; min-width: 0; color: #666; font-size: 12px; word-break: break-all">{{ k.key }}</code>
+            <code style="flex: 1; min-width: 0; color: #666; font-size: 12px; word-break: break-all">{{ maskKey(k.key) }}</code>
             <span style="color: #999; font-size: 12px; white-space: nowrap">{{ formatTime(k.created_at) }}</span>
+            <n-button size="tiny" @click="copyKey(k.key)">复制</n-button>
             <n-button size="tiny" type="error" quaternary @click="removeKey(i)">删除</n-button>
           </div>
           <div v-if="keys.length === 0" style="color: #999; font-size: 12px">还没有密钥，填名称添加一个（密钥自动生成）</div>
