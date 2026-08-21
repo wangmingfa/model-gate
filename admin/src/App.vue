@@ -29,6 +29,8 @@ import {
   LockClosedOutline,
   AlertCircleOutline,
   PersonCircleOutline,
+  ChevronDownOutline,
+  ChevronUpOutline,
 } from '@vicons/ionicons5';
 import { getConfig, saveConfig, testConnection, authStatus, login, logout, generateKey, type ConfigDraft, type ClientKeyDraft } from './api';
 
@@ -129,6 +131,15 @@ const defaultModelOptions = computed(() => aliasOptions.value);
 
 // 测试连接状态：providerName -> { testing, result }
 const testStates = ref<Record<string, { testing: boolean; result: string; ok: boolean }>>({});
+// provider 折叠状态（默认全部展开：未定义 = 展开）
+const providerCollapsed = ref<Record<number, boolean>>({});
+
+function toggleProvider(i: number): void {
+  providerCollapsed.value[i] = !providerCollapsed.value[i];
+}
+function isProviderCollapsed(i: number): boolean {
+  return providerCollapsed.value[i] ?? false;
+}
 
 async function load(): Promise<void> {
   loading.value = true;
@@ -458,59 +469,71 @@ async function onSave(): Promise<void> {
           <span class="card-title"><n-icon :size="16"><ServerOutline /></n-icon> 上游运营商（providers）</span>
         </template>
         <n-space vertical>
-          <div v-for="(p, i) in providers" :key="i" style="border: 1px solid #eee; border-radius: 8px; padding: 12px">
+          <div
+            v-for="(p, i) in providers"
+            :key="i"
+            style="border: 1px solid #eee; border-radius: 8px; padding: 12px; margin-bottom: 8px"
+          >
             <n-space vertical>
-              <n-space justify="space-between" align="center">
-                <span style="font-weight: 600">provider #{{ i + 1 }}</span>
-                <n-button size="small" type="error" quaternary @click="providers.splice(i, 1)">删除</n-button>
+              <n-space justify="space-between" align="center" style="cursor: pointer" @click="toggleProvider(i)">
+                <n-space align="center" style="gap: 8px">
+                  <n-icon :size="16" :component="isProviderCollapsed(i) ? ChevronDownOutline : ChevronUpOutline" />
+                  <span style="font-weight: 600">
+                    provider #{{ i + 1 }}
+                    <span v-if="p.name" style="font-weight: 400; color: #666">（{{ p.name }}）</span>
+                  </span>
+                </n-space>
+                <n-button size="small" type="error" quaternary @click.stop="providers.splice(i, 1)">删除</n-button>
               </n-space>
-              <div style="display: flex; align-items: baseline; gap: 12px">
-                <div style="width: 160px; flex-shrink: 0">
-                  <n-form-item label="名称" style="margin-bottom: 0">
-                    <n-input v-model:value="p.name" placeholder="如 deepseek" />
-                  </n-form-item>
+              <div v-show="!isProviderCollapsed(i)" style="display: flex; flex-direction: column; gap: 8px">
+                <div style="display: flex; align-items: baseline; gap: 12px">
+                  <div style="width: 160px; flex-shrink: 0">
+                    <n-form-item label="名称" style="margin-bottom: 0">
+                      <n-input v-model:value="p.name" placeholder="如 deepseek" />
+                    </n-form-item>
+                  </div>
+                  <div style="flex: 1; min-width: 0">
+                    <n-form-item label="base_url" style="margin-bottom: 0">
+                      <n-input
+                        v-model:value="p.base_url"
+                        placeholder="https://api.deepseek.com/v1"
+                        style="width: 100%"
+                      />
+                    </n-form-item>
+                  </div>
                 </div>
-                <div style="flex: 1; min-width: 0">
-                  <n-form-item label="base_url" style="margin-bottom: 0">
-                    <n-input
-                      v-model:value="p.base_url"
-                      placeholder="https://api.deepseek.com/v1"
-                      style="width: 100%"
-                    />
-                  </n-form-item>
+                <div style="display: flex; align-items: center; gap: 12px">
+                  <div style="flex: 1; min-width: 0">
+                    <n-form-item label="api_key（留空保持原值）" style="margin-bottom: 0">
+                      <n-input
+                        v-model:value="p.api_key"
+                        type="password"
+                        show-password-on="click"
+                        placeholder="留空保持原值"
+                        style="width: 100%"
+                      />
+                    </n-form-item>
+                  </div>
+                  <div style="flex-shrink: 0">
+                    <n-button
+                      size="small"
+                      :loading="testStates[p.name]?.testing"
+                      :type="testStates[p.name]?.ok ? 'success' : 'default'"
+                      @click="onTest(p)"
+                    >
+                      测试连接
+                    </n-button>
+                  </div>
                 </div>
+                <div v-if="testStates[p.name]?.result" style="font-size: 12px">
+                  <n-tag :type="testStates[p.name]?.ok ? 'success' : 'error'" size="small">
+                    {{ testStates[p.name]?.result }}
+                  </n-tag>
+                </div>
+                <n-form-item label="模型列表">
+                  <n-dynamic-input v-model:value="p.models" placeholder="模型 id，如 deepseek-chat" style="width: 100%" />
+                </n-form-item>
               </div>
-              <div style="display: flex; align-items: center; gap: 12px">
-                <div style="flex: 1; min-width: 0">
-                  <n-form-item label="api_key（留空保持原值）" style="margin-bottom: 0">
-                    <n-input
-                      v-model:value="p.api_key"
-                      type="password"
-                      show-password-on="click"
-                      placeholder="留空保持原值"
-                      style="width: 100%"
-                    />
-                  </n-form-item>
-                </div>
-                <div style="flex-shrink: 0">
-                  <n-button
-                    size="small"
-                    :loading="testStates[p.name]?.testing"
-                    :type="testStates[p.name]?.ok ? 'success' : 'default'"
-                    @click="onTest(p)"
-                  >
-                    测试连接
-                  </n-button>
-                </div>
-              </div>
-              <div v-if="testStates[p.name]?.result" style="font-size: 12px">
-                <n-tag :type="testStates[p.name]?.ok ? 'success' : 'error'" size="small">
-                  {{ testStates[p.name]?.result }}
-                </n-tag>
-              </div>
-              <n-form-item label="模型列表">
-                <n-dynamic-input v-model:value="p.models" placeholder="模型 id，如 deepseek-chat" style="width: 100%" />
-              </n-form-item>
             </n-space>
           </div>
           <n-button size="small" @click="addProvider">+ 添加 provider</n-button>
