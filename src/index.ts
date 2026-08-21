@@ -64,12 +64,12 @@ Bun.serve({
 });
 
 if (cfg.host === '0.0.0.0') {
-  console.log(`[model-gate] 已启动，监听所有网卡（端口 ${cfg.port}），可访问入口:`);
-  console.log(`  http://127.0.0.1:${cfg.port}（本机）`);
+  console.log(`[model-gate] 已启动，监听所有网卡（端口 ${cfg.port}），管理界面可访问入口:`);
+  console.log(`  http://127.0.0.1:${cfg.port}/admin（本机）`);
   for (const ip of localIPv4Addresses()) {
-    console.log(`  http://${ip}:${cfg.port}`);
+    console.log(`  http://${ip}:${cfg.port}/admin`);
   }
 } else {
-  console.log(`[model-gate] 已启动: http://${cfg.host}:${cfg.port}`);
+  console.log(`[model-gate] 已启动: http://${cfg.host}:${cfg.port}/admin（管理界面）`);
 }
 console.log(`[model-gate] 配置: ${configPath} | 别名: ${Object.keys(cfg.aliases).join(', ')} | 默认模型: ${cfg.default_model}`);
