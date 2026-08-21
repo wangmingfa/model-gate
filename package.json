@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "bun src/index.ts",
+    "start:prod": "bun run build:admin && bun start",
     "dev": "bun --watch src/index.ts",
     "test": "bun test --path-ignore-patterns=admin",
     "typecheck": "tsc --noEmit",
