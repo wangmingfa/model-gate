@@ -8,7 +8,7 @@ const mockConfig = {
   default_model: 'fast',
   timeout_seconds: 60,
   access_log: true,
-  keys: ['sk-****oke'],
+  keys: [{ name: 'claude', key: 'sk-****oke', created_at: '2026-01-01T00:00:00.000Z' }],
   providers: { mock: { base_url: 'http://127.0.0.1:9999/v1', api_key: 'sk-****ock', models: ['mock-model'] } },
   aliases: { fast: ['mock:mock-model'] },
 };

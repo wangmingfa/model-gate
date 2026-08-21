@@ -16,6 +16,8 @@ import {
   NTag,
   NStatistic,
   NModal,
+  NCollapse,
+  NCollapseItem,
 } from 'naive-ui';
 import {
   SettingsOutline,
@@ -29,8 +31,6 @@ import {
   LockClosedOutline,
   AlertCircleOutline,
   PersonCircleOutline,
-  ChevronDownOutline,
-  ChevronUpOutline,
 } from '@vicons/ionicons5';
 import { getConfig, saveConfig, testConnection, authStatus, login, logout, generateKey, type ConfigDraft, type ClientKeyDraft } from './api';
 
@@ -131,15 +131,21 @@ const defaultModelOptions = computed(() => aliasOptions.value);
 
 // 测试连接状态：providerName -> { testing, result }
 const testStates = ref<Record<string, { testing: boolean; result: string; ok: boolean }>>({});
-// provider 折叠状态（默认全部展开：未定义 = 展开）
-const providerCollapsed = ref<Record<number, boolean>>({});
 
-function toggleProvider(i: number): void {
-  providerCollapsed.value[i] = !providerCollapsed.value[i];
+// 已折叠的 provider 名称集合（默认全部展开；用名称驱动，避免删除/重排导致索引错乱）
+const collapsedProviders = ref(new Set<string>());
+
+function collapseName(p: ProviderRow, i: number): string {
+  return p.name || `#${i}`;
 }
-function isProviderCollapsed(i: number): boolean {
-  return providerCollapsed.value[i] ?? false;
-}
+
+const expandedProviderNames = computed<string[]>({
+  get: () => providers.value.map(collapseName).filter((name) => !collapsedProviders.value.has(name)),
+  set: (names) => {
+    const expanded = new Set(names);
+    collapsedProviders.value = new Set(providers.value.map(collapseName).filter((name) => !expanded.has(name)));
+  },
+});
 
 async function load(): Promise<void> {
   loading.value = true;
@@ -469,23 +475,33 @@ async function onSave(): Promise<void> {
           <span class="card-title"><n-icon :size="16"><ServerOutline /></n-icon> 上游运营商（providers）</span>
         </template>
         <n-space vertical>
-          <div
-            v-for="(p, i) in providers"
-            :key="i"
-            style="border: 1px solid #eee; border-radius: 8px; padding: 12px; margin-bottom: 8px"
-          >
-            <n-space vertical>
-              <n-space justify="space-between" align="center" style="cursor: pointer" @click="toggleProvider(i)">
-                <n-space align="center" style="gap: 8px">
-                  <n-icon :size="16" :component="isProviderCollapsed(i) ? ChevronDownOutline : ChevronUpOutline" />
-                  <span style="font-weight: 600">
-                    provider #{{ i + 1 }}
-                    <span v-if="p.name" style="font-weight: 400; color: #666">（{{ p.name }}）</span>
-                  </span>
-                </n-space>
-                <n-button size="small" type="error" quaternary @click.stop="providers.splice(i, 1)">删除</n-button>
-              </n-space>
-              <div v-show="!isProviderCollapsed(i)" style="display: flex; flex-direction: column; gap: 8px">
+          <n-collapse v-model:expanded-names="expandedProviderNames">
+            <n-collapse-item
+              v-for="(p, i) in providers"
+              :key="collapseName(p, i)"
+              :name="collapseName(p, i)"
+              arrow-placement="left"
+            >
+              <template #header>
+                <span style="font-weight: 600">
+                  provider #{{ i + 1 }}
+                  <span v-if="p.name" style="font-weight: 400; color: #666">（{{ p.name }}）</span>
+                </span>
+              </template>
+              <div
+                style="
+                  border: 1px solid #eee;
+                  border-radius: 8px;
+                  padding: 12px;
+                  margin-bottom: 8px;
+                  display: flex;
+                  flex-direction: column;
+                  gap: 8px;
+                "
+              >
+                <div style="display: flex; justify-content: flex-end; align-items: center">
+                  <n-button size="small" type="error" quaternary @click="providers.splice(i, 1)">删除</n-button>
+                </div>
                 <div style="display: flex; align-items: baseline; gap: 12px">
                   <div style="width: 160px; flex-shrink: 0">
                     <n-form-item label="名称" style="margin-bottom: 0">
@@ -534,8 +550,8 @@ async function onSave(): Promise<void> {
                   <n-dynamic-input v-model:value="p.models" placeholder="模型 id，如 deepseek-chat" style="width: 100%" />
                 </n-form-item>
               </div>
-            </n-space>
-          </div>
+            </n-collapse-item>
+          </n-collapse>
           <n-button size="small" @click="addProvider">+ 添加 provider</n-button>
         </n-space>
       </n-card>
