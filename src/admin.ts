@@ -217,13 +217,13 @@ export function createAdminApp(getConfig: () => Config, configPath: string | und
     return c.json({ ok: true }, { status: 200, headers: { 'set-cookie': clearSessionCookie() } });
   });
 
-  // 返回掩码后的完整配置（前端编辑底稿；keys 的 key 值掩码，name/created_at 保留）
+  // 返回完整配置（前端编辑底稿；keys 返回原始值，前端负责掩码显示）
   admin.get('/api/config', (c) => {
     const cfg = getConfig();
     const { admin_password, ...rest } = cfg; // admin_password 不进编辑范围
     return c.json({
       ...rest,
-      keys: cfg.keys.map((k) => ({ ...k, key: maskKey(k.key) })),
+      keys: cfg.keys,
       providers: Object.fromEntries(
         Object.entries(cfg.providers).map(([name, p]) => [name, { ...p, api_key: maskKey(p.api_key) }]),
       ),

@@ -137,8 +137,11 @@ const acfg = (await r.json()) as {
   keys: Array<{ name: string; key: string; created_at: string }>;
 };
 check(
-  'admin GET /api/config → 200 且密钥已掩码',
-  r.status === 200 && acfg.providers?.mock?.api_key?.includes('****') && acfg.keys[0]?.key?.includes('****'),
+  'admin GET /api/config → 200 且 provider 密钥掩码、keys 为原始值',
+  r.status === 200 &&
+    acfg.providers?.mock?.api_key?.includes('****') &&
+    !acfg.keys[0]?.key?.includes('****') &&
+    acfg.keys[0]?.key === cfg.keys[0].key,
 );
 
 // 非回环来源未登录 → 401 auth_required（admin 安全边界，依赖 env.requestIP 接线）

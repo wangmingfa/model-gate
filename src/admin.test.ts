@@ -152,16 +152,15 @@ describe('Web UI 密码登录', () => {
 });
 
 describe('GET /admin/api/config', () => {
-  test('返回掩码后的配置，密钥不泄露', async () => {
+  test('返回完整配置：keys 为原始值（前端负责掩码显示），provider 密钥仍掩码', async () => {
     writeConfig(base);
     const res = await adminReq('/api/config');
     const j = (await res.json()) as Record<string, any>;
     expect(j.providers.deepseek.api_key).toBe('sk-****key');
     expect(j.keys).toEqual([
-      { name: 'agent-one', key: 'sk-****one', created_at: '2026-01-01T00:00:00.000Z' },
-      { name: 'agent-two', key: 'sk-****two', created_at: '2026-01-02T00:00:00.000Z' },
+      { name: 'agent-one', key: 'sk-agent-one', created_at: '2026-01-01T00:00:00.000Z' },
+      { name: 'agent-two', key: 'sk-agent-two', created_at: '2026-01-02T00:00:00.000Z' },
     ]);
-    expect(JSON.stringify(j.keys)).not.toContain('sk-agent-one');
   });
 });
 

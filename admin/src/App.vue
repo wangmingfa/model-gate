@@ -201,6 +201,12 @@ async function copyPendingKey(): Promise<void> {
   else message.error('复制失败，请手动选择复制');
 }
 
+/** 复制完整密钥到剪贴板（后端返回原始值；列表显示时掩码，复制时用完整值） */
+async function copyKey(key: string): Promise<void> {
+  if (await copyText(key)) message.success('完整密钥已复制到剪贴板');
+  else message.error('复制失败，请手动选择复制');
+}
+
 /** 删除密钥（已有密钥只读，只能删除），并立即保存 */
 async function removeKey(index: number): Promise<void> {
   const [removed] = keys.value.splice(index, 1);
@@ -405,6 +411,7 @@ async function onSave(): Promise<void> {
             <n-tag type="primary" size="small" style="width: 110px; justify-content: center">{{ k.name }}</n-tag>
             <code style="flex: 1; min-width: 0; color: #666; font-size: 12px; word-break: break-all">{{ maskKey(k.key) }}</code>
             <span style="color: #999; font-size: 12px; white-space: nowrap">{{ formatTime(k.created_at) }}</span>
+            <n-button size="tiny" @click="copyKey(k.key)">复制</n-button>
             <n-button size="tiny" type="error" quaternary @click="removeKey(i)">删除</n-button>
           </div>
           <div v-if="keys.length === 0" style="color: #999; font-size: 12px">还没有密钥，填名称添加一个（密钥自动生成）</div>
