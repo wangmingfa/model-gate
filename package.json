@@ -13,6 +13,7 @@
     "dev": "bun --watch src/index.ts",
     "embed:admin": "bun scripts/embed-assets.ts",
     "bundle": "bun run build:admin && bun scripts/embed-assets.ts && bun build src/index.ts --target=bun --outfile model-gate.js",
+    "start:bundle": "bun run bundle && bun model-gate.js",
     "test": "bun test --path-ignore-patterns=admin",
     "typecheck": "tsc --noEmit",
     "build:admin": "cd admin && bun install && bun run build",
