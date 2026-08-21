@@ -320,27 +320,29 @@ async function onSave(): Promise<void> {
                   </n-form-item>
                 </div>
               </div>
-              <n-form-item label="api_key（留空保持原值）" style="margin-bottom: 0">
-                <n-input
-                  v-model:value="p.api_key"
-                  type="password"
-                  show-password-on="click"
-                  placeholder="留空保持原值"
-                  style="width: 100%"
-                >
-                  <template #suffix>
-                    <n-button
-                      text
-                      size="tiny"
-                      :loading="testStates[p.name]?.testing"
-                      :type="testStates[p.name]?.ok ? 'success' : 'default'"
-                      @click="onTest(p)"
-                    >
-                      测试连接
-                    </n-button>
-                  </template>
-                </n-input>
-              </n-form-item>
+              <div style="display: flex; align-items: center; gap: 12px">
+                <div style="flex: 1; min-width: 0">
+                  <n-form-item label="api_key（留空保持原值）" style="margin-bottom: 0">
+                    <n-input
+                      v-model:value="p.api_key"
+                      type="password"
+                      show-password-on="click"
+                      placeholder="留空保持原值"
+                      style="width: 100%"
+                    />
+                  </n-form-item>
+                </div>
+                <div style="flex-shrink: 0">
+                  <n-button
+                    size="small"
+                    :loading="testStates[p.name]?.testing"
+                    :type="testStates[p.name]?.ok ? 'success' : 'default'"
+                    @click="onTest(p)"
+                  >
+                    测试连接
+                  </n-button>
+                </div>
+              </div>
               <div v-if="testStates[p.name]?.result" style="font-size: 12px">
                 <n-tag :type="testStates[p.name]?.ok ? 'success' : 'error'" size="small">
                   {{ testStates[p.name]?.result }}
