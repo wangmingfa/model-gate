@@ -46,7 +46,7 @@ function removeProvider(index: number): void {
 async function onSave(): Promise<void> {
   // 写回 store（深拷贝，避免草稿与 store 共享引用）
   store.providers = JSON.parse(JSON.stringify(draft.value));
-  await store.saveSection({ successMsg: '上游运营商已保存' });
+  await store.saveSection({ successMsg: '提供商已保存' });
   // 同步草稿：失败也不丢内容——saveSection 不再 load 回滚，store.providers 仍是刚写入的草稿拷贝
   draft.value = JSON.parse(JSON.stringify(store.providers));
 }
@@ -55,7 +55,7 @@ async function onSave(): Promise<void> {
 <template>
   <n-card size="small" class="soft-card">
     <template #header>
-      <span class="card-title"><n-icon :size="16"><ServerOutline /></n-icon> 上游运营商（providers）</span>
+      <span class="card-title"><n-icon :size="16"><ServerOutline /></n-icon> 提供商（providers）</span>
     </template>
     <n-space vertical>
       <n-collapse v-model:expanded-names="expandedNames">
@@ -92,7 +92,7 @@ async function onSave(): Promise<void> {
                   ✕
                 </n-button>
               </template>
-              删除该运营商
+              删除该提供商
             </n-tooltip>
             <div style="display: flex; align-items: baseline; gap: 12px" class="provider-name-row">
               <div style="width: 160px; flex-shrink: 0">
@@ -156,7 +156,7 @@ async function onSave(): Promise<void> {
 </template>
 
 <style>
-/* 删除按钮浮动在运营商卡片右上角，不占用布局空间 */
+/* 删除按钮浮动在提供商卡片右上角，不占用布局空间 */
 .provider-item .float-del-btn {
   position: absolute;
   top: 6px;

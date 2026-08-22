@@ -94,7 +94,7 @@ const sections = computed<SectionItem[]>(() => [
   { key: 'access', label: '接入信息', icon: markRaw(LinkOutline) },
   { key: 'basic', label: '基本设置', icon: markRaw(SettingsOutline) },
   { key: 'keys', label: '下游密钥', icon: markRaw(KeyOutline), count: store.keys.length },
-  { key: 'providers', label: '上游运营商', icon: markRaw(ServerOutline), count: store.providers.length },
+  { key: 'providers', label: '提供商', icon: markRaw(ServerOutline), count: store.providers.length },
   { key: 'aliases', label: '模型别名', icon: markRaw(GitBranchOutline), count: store.aliases.length },
 ]);
 
