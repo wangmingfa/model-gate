@@ -411,7 +411,7 @@ async function onSave(): Promise<void> {
           <span class="card-title"><n-icon :size="16"><KeyOutline /></n-icon> 下游密钥（keys，agent 连入网关用）</span>
         </template>
         <!-- 添加：填名称，密钥自动生成 -->
-        <n-space style="margin-bottom: 12px">
+        <n-space style="margin-bottom: 12px" class="key-add-row">
           <n-input v-model:value="newKeyName" placeholder="密钥名称，如 Claude / Cursor" style="width: 260px" @keyup.enter="addKey" />
           <n-button type="primary" @click="addKey">
             <template #icon><n-icon><SaveOutline /></n-icon></template>
@@ -423,10 +423,10 @@ async function onSave(): Promise<void> {
           <div
             v-for="(k, i) in keys"
             :key="k.name"
-            style="display: flex; align-items: center; gap: 12px; border: 1px solid #eee; border-radius: 8px; padding: 8px 12px"
+            class="key-row"
           >
-            <n-tag type="primary" size="small" style="width: 110px; justify-content: center">{{ k.name }}</n-tag>
-            <code style="flex: 1; min-width: 0; color: #666; font-size: 12px; word-break: break-all">{{ maskKey(k.key) }}</code>
+            <n-tag type="primary" size="small" style="width: 110px; justify-content: center" class="key-name">{{ k.name }}</n-tag>
+            <code style="color: #666; font-size: 12px; word-break: break-all" class="key-value">{{ maskKey(k.key) }}</code>
             <span style="color: #999; font-size: 12px; white-space: nowrap">{{ formatTime(k.created_at) }}</span>
             <n-button size="tiny" @click="copyKey(k.key)">复制</n-button>
             <n-button size="tiny" type="error" quaternary @click="removeKey(i)">删除</n-button>
@@ -682,5 +682,47 @@ async function onSave(): Promise<void> {
 .auth-icon.warn {
   background: linear-gradient(135deg, #fef3c7, #fce7f3);
   color: #d97706;
+}
+
+/* ---- 密钥列表行 ---- */
+.key-add-row {
+  flex-wrap: wrap;
+}
+.key-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  padding: 8px 12px;
+  flex-wrap: wrap;
+}
+
+/* ---- 移动端适配：窄屏下把横排元素改为竖排，避免挤压成一列 ---- */
+@media (max-width: 600px) {
+  .key-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .key-add-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .key-add-row > * {
+    width: 100%;
+  }
+  .key-name {
+    width: auto !important;
+    min-width: 0;
+  }
+  .key-value {
+    word-break: break-all;
+  }
+  .hero-header {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 16px;
+  }
 }
 </style>
