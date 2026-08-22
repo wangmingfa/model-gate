@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, h } from 'vue';
-import { useMessage, NIcon, NDropdown } from 'naive-ui';
+import { useMessage, useDialog, NIcon, NDropdown } from 'naive-ui';
 import {
   NCard,
   NForm,
@@ -35,6 +35,7 @@ import {
 import { getConfig, saveConfig, testConnection, authStatus, login, logout, generateKey, type ConfigDraft, type ClientKeyDraft } from './api';
 
 const message = useMessage();
+const dialog = useDialog();
 
 // ---- 登录态：未配密码 → 提示去配置文件 / 配了未登录 → 登录表单 / 已登录 → 编辑界面 ----
 const authState = ref<'checking' | 'need-password' | 'need-login' | 'ok'>('checking');
@@ -226,8 +227,45 @@ async function copyKey(key: string): Promise<void> {
 
 /** 删除密钥（已有密钥只读，只能删除），并立即保存 */
 async function removeKey(index: number): Promise<void> {
-  const [removed] = keys.value.splice(index, 1);
-  await saveKeysChange(`已删除密钥 ${removed.name} 并保存`);
+  const removed = keys.value[index];
+  dialog.warning({
+    title: '确认删除',
+    content: `确认删除密钥「${removed.name}」吗？此操作不可撤销。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    async onPositiveClick() {
+      keys.value.splice(index, 1);
+      await saveKeysChange(`已删除密钥 ${removed.name} 并保存`);
+    },
+  });
+}
+
+/** 删除 provider */
+function removeProvider(index: number): void {
+  const name = providers.value[index].name || `#${index + 1}`;
+  dialog.warning({
+    title: '确认删除',
+    content: `确认删除 provider「${name}」吗？此操作不可撤销。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick() {
+      providers.value.splice(index, 1);
+    },
+  });
+}
+
+/** 删除别名 */
+function removeAlias(index: number): void {
+  const name = aliases.value[index].name || `#${index + 1}`;
+  dialog.warning({
+    title: '确认删除',
+    content: `确认删除别名「${name}」吗？此操作不可撤销。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick() {
+      aliases.value.splice(index, 1);
+    },
+  });
 }
 
 /** 保存 keys 变更（添加/删除即自动保存）：成功后提示，失败则拉取服务端状态回滚本地编辑 */
@@ -504,7 +542,7 @@ async function onSave(): Promise<void> {
                 "
               >
                 <div style="display: flex; justify-content: flex-end; align-items: center">
-                  <n-button size="small" type="error" quaternary @click="providers.splice(i, 1)">删除</n-button>
+                  <n-button size="small" type="error" quaternary @click="removeProvider(i)">删除</n-button>
                 </div>
                 <div style="display: flex; align-items: baseline; gap: 12px" class="provider-name-row">
                   <div style="width: 160px; flex-shrink: 0">
@@ -568,7 +606,7 @@ async function onSave(): Promise<void> {
           <div v-for="(a, i) in aliases" :key="i" style="border: 1px solid #eee; border-radius: 8px; padding: 12px">
             <n-space justify="space-between" align="center">
               <span style="font-weight: 600">alias #{{ i + 1 }}</span>
-              <n-button size="small" type="error" quaternary @click="aliases.splice(i, 1)">删除</n-button>
+              <n-button size="small" type="error" quaternary @click="removeAlias(i)">删除</n-button>
             </n-space>
             <n-space>
               <n-form-item label="别名" style="margin-bottom: 0">
