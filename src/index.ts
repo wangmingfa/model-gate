@@ -54,7 +54,8 @@ setInterval(() => {
   }
 }, 1000);
 
-const app = createApp(() => cfg, { configPath });
+const includeAdminStatic = process.env.MODEL_GATE_DEV !== '1';
+const app = createApp(() => cfg, { configPath, includeAdminStatic });
 
 Bun.serve({
   hostname: cfg.host,
@@ -64,12 +65,19 @@ Bun.serve({
 });
 
 if (cfg.host === '0.0.0.0') {
-  console.log(`[model-gate] 已启动，监听所有网卡（端口 ${cfg.port}），管理界面可访问入口:`);
-  console.log(`  http://127.0.0.1:${cfg.port}/admin（本机）`);
-  for (const ip of localIPv4Addresses()) {
-    console.log(`  http://${ip}:${cfg.port}/admin`);
+  if (includeAdminStatic) {
+    console.log(`[model-gate] 已启动，监听所有网卡（端口 ${cfg.port}），管理界面可访问入口:`);
+    console.log(`  http://127.0.0.1:${cfg.port}/admin（本机）`);
+    for (const ip of localIPv4Addresses()) {
+      console.log(`  http://${ip}:${cfg.port}/admin`);
+    }
+  } else {
+    console.log(`[model-gate] 已启动（开发模式，仅 API），端口 ${cfg.port}；管理界面通过 Vite: http://localhost:5173/admin`);
   }
-} else {
+} else if (includeAdminStatic) {
   console.log(`[model-gate] 已启动: http://${cfg.host}:${cfg.port}/admin（管理界面）`);
+} else {
+  console.log(`[model-gate] 已启动（开发模式，仅 API）: http://${cfg.host}:${cfg.port}`);
+  console.log(`[model-gate] 管理界面通过 Vite: http://localhost:5173/admin`);
 }
 console.log(`[model-gate] 配置: ${configPath} | 别名: ${Object.keys(cfg.aliases).join(', ')} | 默认模型: ${cfg.default_model}`);

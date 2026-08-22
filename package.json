@@ -8,16 +8,13 @@
     "bun": ">=1.0.0"
   },
   "scripts": {
-    "start": "bun src/index.ts",
-    "start:prod": "bun run build:admin && bun start",
-    "dev": "bun --watch src/index.ts",
-    "embed:admin": "bun scripts/embed-assets.ts",
-    "bundle": "bun run build:admin && bun scripts/embed-assets.ts && bun build src/index.ts --target=bun --outfile model-gate.js",
-    "start:bundle": "bun run bundle && bun model-gate.js",
+    "dev": "bun run --parallel dev:api dev:ui",
+    "dev:api": "MODEL_GATE_DEV=1 bun --watch src/index.ts",
+    "dev:ui": "cd admin && bun run dev",
+    "embed": "cd admin && bun install && bun run build && bun scripts/embed-assets.ts",
+    "build": "bun run embed && bun build src/index.ts --target=bun --outfile model-gate.js",
     "test": "bun test --path-ignore-patterns=admin",
-    "typecheck": "tsc --noEmit",
-    "build:admin": "cd admin && bun install && bun run build",
-    "dev:admin": "cd admin && bun run dev"
+    "typecheck": "bun node_modules/typescript/bin/tsc --noEmit"
   },
   "dependencies": {
     "hono": "^4.6.0"

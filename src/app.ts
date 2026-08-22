@@ -14,7 +14,7 @@ type Vars = { access?: LogRecord };
  */
 export function createApp(
   getConfig: () => Config,
-  opts?: { configPath?: string },
+  opts?: { configPath?: string; includeAdminStatic?: boolean },
 ): Hono<{ Variables: Vars; Bindings: LoopbackEnv }> {
   const app = new Hono<{ Variables: Vars; Bindings: LoopbackEnv }>();
 
@@ -162,7 +162,7 @@ export function createApp(
   );
 
   // 管理界面（SPA + /admin/api/*），挂载在最后，避免被 /v1/* 的 501 catch-all 拦截
-  app.route('/admin', createAdminApp(getConfig, opts?.configPath));
+  app.route('/admin', createAdminApp(getConfig, opts?.configPath, { includeStatic: opts?.includeAdminStatic ?? true }));
 
   return app;
 }

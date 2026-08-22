@@ -167,7 +167,11 @@ async function serveSpa(c: Context, dist: string, rel: string): Promise<Response
 }
 
 /** 构建管理界面应用（挂载到 /admin 下） */
-export function createAdminApp(getConfig: () => Config, configPath: string | undefined): Hono {
+export function createAdminApp(
+  getConfig: () => Config,
+  configPath: string | undefined,
+  opts?: { includeStatic?: boolean },
+): Hono {
   const admin = new Hono();
   admin.use('*', authGuard);
 
@@ -364,16 +368,18 @@ export function createAdminApp(getConfig: () => Config, configPath: string | und
     }
   });
 
-  // 静态托管 admin/dist + SPA fallback
-  const DIST = resolve(import.meta.dir, '../admin/dist');
-  admin.get('/', async (c) => serveSpa(c, DIST, ''));
-  admin.get('/*', async (c) => {
-    const rel = c.req.path.replace(/^\/admin\//, '');
-    if (rel.startsWith('api/')) {
-      return c.json({ error: { message: '接口不存在', type: 'invalid_request_error' } }, 404);
-    }
-    return serveSpa(c, DIST, rel);
-  });
+  // 静态托管 admin/dist + SPA fallback（开发模式由 Vite 5173 托管，可不注册）
+  if (opts?.includeStatic !== false) {
+    const DIST = resolve(import.meta.dir, '../admin/dist');
+    admin.get('/', async (c) => serveSpa(c, DIST, ''));
+    admin.get('/*', async (c) => {
+      const rel = c.req.path.replace(/^\/admin\//, '');
+      if (rel.startsWith('api/')) {
+        return c.json({ error: { message: '接口不存在', type: 'invalid_request_error' } }, 404);
+      }
+      return serveSpa(c, DIST, rel);
+    });
+  }
 
   return admin;
 }
