@@ -1,8 +1,14 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
+import { codeInspectorPlugin } from 'code-inspector-plugin';
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [
+    vue(),
+    codeInspectorPlugin({
+      bundler: 'vite',
+    }),
+  ],
   // 网关把 admin 挂在 /admin 下，资源路径必须带前缀，否则 /assets/* 404
   base: '/admin/',
   server: {

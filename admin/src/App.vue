@@ -414,9 +414,9 @@ async function onSave(): Promise<void> {
             </p>
           </div>
         </div>
-        <n-dropdown trigger="click" :options="userMenuOptions" @select="onUserMenuSelect">
+        <n-dropdown trigger="click" placement="bottom-end" :options="userMenuOptions" @select="onUserMenuSelect">
           <n-button quaternary circle size="small" aria-label="用户菜单">
-            <n-icon :size="22"><PersonCircleOutline /></n-icon>
+            <n-icon color="#ffffff" :size="22"><PersonCircleOutline /></n-icon>
           </n-button>
         </n-dropdown>
       </div>
