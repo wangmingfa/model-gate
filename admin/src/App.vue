@@ -99,6 +99,9 @@ function onUserMenuSelect(key: string): void {
 
 // ---- 编辑态（键值对象转成可编辑行）----
 interface ProviderRow {
+  /** 行级稳定 ID（本地生成，与 name 无关）：用作 v-for :key 与折叠面板 name，
+   *  避免编辑 name 时 key 变化导致 Vue 重建 DOM、输入框每敲一个字符就失焦 */
+  _id: string;
   name: string;
   base_url: string;
   api_key: string;
@@ -166,18 +169,20 @@ const defaultModelOptions = computed(() => aliasOptions.value);
 // 测试连接状态：providerName -> { testing, result }
 const testStates = ref<Record<string, { testing: boolean; result: string; ok: boolean }>>({});
 
-// 已折叠的 provider 名称集合（默认全部展开；用名称驱动，避免删除/重排导致索引错乱）
+// 已折叠的 provider 行 ID 集合（默认全部展开；用稳定 _id 驱动，改名/删除/重排都不错乱）
 const collapsedProviders = ref(new Set<string>());
 
-function collapseName(p: ProviderRow, i: number): string {
-  return p.name || `#${i}`;
+// 行级 ID 生成器（仅前端追踪用，不进配置草稿）
+let providerRowSeq = 0;
+function nextProviderRowId(): string {
+  return `row-${++providerRowSeq}`;
 }
 
 const expandedProviderNames = computed<string[]>({
-  get: () => providers.value.map(collapseName).filter((name) => !collapsedProviders.value.has(name)),
+  get: () => providers.value.map((p) => p._id).filter((id) => !collapsedProviders.value.has(id)),
   set: (names) => {
     const expanded = new Set(names);
-    collapsedProviders.value = new Set(providers.value.map(collapseName).filter((name) => !expanded.has(name)));
+    collapsedProviders.value = new Set(providers.value.map((p) => p._id).filter((id) => !expanded.has(id)));
   },
 });
 
@@ -195,6 +200,7 @@ async function load(): Promise<void> {
     defaultModel.value = cfg.default_model;
     keys.value = [...cfg.keys];
     providers.value = Object.entries(cfg.providers).map(([name, p]) => ({
+      _id: nextProviderRowId(),
       name,
       base_url: p.base_url,
       api_key: '', // 不回填掩码：失焦保存时会把掩码串当真实密钥写回，破坏原密钥；空 = 保持原值
@@ -211,7 +217,7 @@ async function load(): Promise<void> {
 onMounted(checkAuth);
 
 function addProvider(): void {
-  providers.value.push({ name: '', base_url: '', api_key: '', models: [] });
+  providers.value.push({ _id: nextProviderRowId(), name: '', base_url: '', api_key: '', models: [] });
 }
 function addAlias(): void {
   aliases.value.push({ name: '', targets: [] });
@@ -593,8 +599,8 @@ function scheduleAutoSave(opts?: { silent?: boolean; successMsg?: string }): voi
           <n-collapse v-model:expanded-names="expandedProviderNames">
             <n-collapse-item
               v-for="(p, i) in providers"
-              :key="collapseName(p, i)"
-              :name="collapseName(p, i)"
+              :key="p._id"
+              :name="p._id"
               arrow-placement="left"
             >
               <template #header>
