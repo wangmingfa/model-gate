@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { describe, expect, test } from 'bun:test';
-import { loadConfig, validateConfig, interpolateEnv, ConfigError } from './config';
+import { loadConfig, validateConfig, checkConfig, interpolateEnv, ConfigError } from './config';
 
 const base = {
   port: 8787,
@@ -56,16 +56,16 @@ describe('validateConfig', () => {
     expect(() => validateConfig({ ...base, keys: [] })).not.toThrow();
   });
 
-  test('alias 引用不存在 provider 抛错', () => {
-    expect(() => validateConfig({ ...base, aliases: { fast: ['nope:m'] } })).toThrow(/不存在的 provider/);
+  test('alias 引用不存在 provider 不抛错（交由 checkConfig 报告）', () => {
+    expect(() => validateConfig({ ...base, aliases: { fast: ['nope:m'] } })).not.toThrow();
   });
 
-  test('alias 引用 provider 没有的模型抛错', () => {
-    expect(() => validateConfig({ ...base, aliases: { fast: ['deepseek:no-such'] } })).toThrow(/不在 provider/);
+  test('alias 引用 provider 没有的模型不抛错（交由 checkConfig 报告）', () => {
+    expect(() => validateConfig({ ...base, aliases: { fast: ['deepseek:no-such'] } })).not.toThrow();
   });
 
-  test('default_model 不是别名抛错', () => {
-    expect(() => validateConfig({ ...base, default_model: 'ghost' })).toThrow(/default_model/);
+  test('default_model 不是别名不抛错（交由 checkConfig 报告）', () => {
+    expect(() => validateConfig({ ...base, default_model: 'ghost' })).not.toThrow();
   });
 
   test('alias 项不是 provider:model 形式抛错', () => {
@@ -120,5 +120,78 @@ describe('loadConfig', () => {
     const path = '/tmp/mg-bad-json.json';
     require('node:fs').writeFileSync(path, '{not json');
     expect(() => loadConfig(path)).toThrow(/不是合法 JSON/);
+  });
+});
+
+describe('checkConfig', () => {
+  test('合法配置无问题', () => {
+    const cfg = validateConfig(base);
+    expect(checkConfig(cfg)).toEqual([]);
+  });
+
+  test('alias 引用不存在 provider 报 error', () => {
+    const cfg = validateConfig({ ...base, aliases: { fast: ['nope:m'] } });
+    const issues = checkConfig(cfg);
+    const err = issues.find((i) => i.level === 'error');
+    expect(err).toBeDefined();
+    expect(err!.message).toMatch(/不存在的 provider/);
+    expect(err!.target).toBe('alias:fast');
+  });
+
+  test('alias 引用 provider 没有的模型报 error', () => {
+    const cfg = validateConfig({ ...base, aliases: { fast: ['deepseek:no-such'] } });
+    const issues = checkConfig(cfg);
+    const err = issues.find((i) => i.level === 'error');
+    expect(err).toBeDefined();
+    expect(err!.message).toMatch(/不在 provider/);
+    expect(err!.target).toBe('alias:fast');
+  });
+
+  test('default_model 不是别名报 error', () => {
+    const cfg = validateConfig({ ...base, default_model: 'ghost' });
+    const issues = checkConfig(cfg);
+    const err = issues.find((i) => i.target === 'default_model');
+    expect(err).toBeDefined();
+    expect(err!.level).toBe('error');
+    expect(err!.message).toMatch(/default_model/);
+  });
+
+  test('keys 为空报 warning', () => {
+    const cfg = validateConfig({ ...base, keys: [] });
+    const issues = checkConfig(cfg);
+    const warn = issues.find((i) => i.target === 'keys');
+    expect(warn).toBeDefined();
+    expect(warn!.level).toBe('warning');
+  });
+
+  test('providers 为空报 warning', () => {
+    const cfg = validateConfig({ ...base, providers: {}, aliases: {} });
+    const issues = checkConfig(cfg);
+    const warn = issues.find((i) => i.target === 'providers');
+    expect(warn).toBeDefined();
+    expect(warn!.level).toBe('warning');
+  });
+
+  test('aliases 为空报 warning', () => {
+    const cfg = validateConfig({ ...base, aliases: {} });
+    const issues = checkConfig(cfg);
+    const warn = issues.find((i) => i.target === 'aliases');
+    expect(warn).toBeDefined();
+    expect(warn!.level).toBe('warning');
+  });
+
+  test('多问题同时收集（不因首个错误而短路）', () => {
+    const cfg = validateConfig({
+      ...base,
+      keys: [],
+      providers: {},
+      aliases: { fast: ['nope:m'], reason: ['deepseek:no-such'] },
+      default_model: 'ghost',
+    });
+    const issues = checkConfig(cfg);
+    const errors = issues.filter((i) => i.level === 'error');
+    const warnings = issues.filter((i) => i.level === 'warning');
+    expect(errors.length).toBeGreaterThanOrEqual(3); // 2 个 alias 引用错误 + 1 个 default_model 错误
+    expect(warnings.length).toBeGreaterThanOrEqual(1); // keys/providers 为空告警
   });
 });

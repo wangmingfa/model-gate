@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Config } from './config';
-import { validateConfig } from './config';
+import { validateConfig, checkConfig } from './config';
 import { adminAssets } from './admin-assets.generated';
 
 /** 回环检查所需的 Bun server 形态（app.fetch(req, server) 时 c.env = server） */
@@ -332,6 +332,13 @@ export function createAdminApp(
       );
     }
     return c.json({ ok: true });
+  });
+
+  // 检查配置正确性：对当前运行中的配置做完整体检，汇总全部错误/告警（不修改配置）
+  admin.post('/api/config/check', (c) => {
+    const cfg = getConfig();
+    const issues = checkConfig(cfg);
+    return c.json({ ok: true, issues });
   });
 
   // 测试连接：用后端持有的真实 key 发 1-token 请求

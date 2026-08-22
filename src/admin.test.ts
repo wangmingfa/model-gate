@@ -197,7 +197,9 @@ describe('PUT /admin/api/config', () => {
 
   test('非法配置返回 400 且不写文件', async () => {
     writeConfig(base);
-    const bad = { ...base, aliases: { fast: ['ghost:model'] } };
+    // 结构性错误（port 非法）才会在 validateConfig 阶段被拒绝；
+    // 引用完整性（如 alias 引用不存在的 provider）已移至 checkConfig，不再阻止保存
+    const bad = { ...base, port: 99999 };
     const res = await adminReq('/api/config', { method: 'PUT', body: JSON.stringify(bad) });
     expect(res.status).toBe(400);
     const j = (await res.json()) as Record<string, any>;

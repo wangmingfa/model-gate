@@ -50,6 +50,19 @@ export function getConfig(): Promise<ConfigDraft> {
   return request('/config');
 }
 
+/** 配置体检问题（与后端 ConfigIssue 对应） */
+export interface ConfigIssue {
+  level: 'error' | 'warning';
+  message: string;
+  /** 定位：provider:<name> / alias:<name> / default_model / keys / providers / aliases / global */
+  target?: string;
+}
+
+/** 检查配置正确性：对当前服务端配置做完整体检，返回全部错误/告警（不修改配置） */
+export function checkConfig(): Promise<{ ok: true; issues: ConfigIssue[] }> {
+  return request('/config/check', { method: 'POST' });
+}
+
 export function saveConfig(draft: ConfigDraft): Promise<{ ok: true }> {
   return request('/config', { method: 'PUT', body: JSON.stringify(draft) });
 }

@@ -31,8 +31,9 @@ import {
   LockClosedOutline,
   AlertCircleOutline,
   PersonCircleOutline,
+  CheckmarkCircleOutline,
 } from '@vicons/ionicons5';
-import { getConfig, saveConfig, testConnection, authStatus, login, logout, generateKey, type ConfigDraft, type ClientKeyDraft } from './api';
+import { getConfig, saveConfig, testConnection, authStatus, login, logout, generateKey, checkConfig, type ConfigDraft, type ClientKeyDraft, type ConfigIssue } from './api';
 
 const message = useMessage();
 const dialog = useDialog();
@@ -127,6 +128,38 @@ const loading = ref(true);
 const saving = ref(false);
 const loadError = ref('');
 
+// 配置体检：检查结果的错误/告警列表；checkIssues 非空即代表已做过检查
+const checking = ref(false);
+const checkIssues = ref<ConfigIssue[] | null>(null);
+// 由检查结果推导出的「需要标红的字段集合」
+const erroredProviders = computed(
+  () => new Set((checkIssues.value ?? []).filter((i) => i.target?.startsWith('provider:')).map((i) => i.target!.slice('provider:'.length))),
+);
+const erroredAliases = computed(
+  () => new Set((checkIssues.value ?? []).filter((i) => i.target?.startsWith('alias:')).map((i) => i.target!.slice('alias:'.length))),
+);
+const defaultModelError = computed(() => (checkIssues.value ?? []).some((i) => i.target === 'default_model'));
+
+/** 检查配置正确性：对服务端当前运行配置体检，结果用于页面标红与报告 */
+async function onCheckConfig(): Promise<void> {
+  checking.value = true;
+  try {
+    const r = await checkConfig();
+    checkIssues.value = r.issues;
+    const errors = r.issues.filter((i) => i.level === 'error');
+    if (errors.length === 0) {
+      if (r.issues.length === 0) message.success('配置完全正确');
+      else message.success('未发现错误（仅有提示项）');
+    } else {
+      message.error(`发现 ${errors.length} 个错误，已在页面中标红`);
+    }
+  } catch (e) {
+    message.error(`检查失败：${(e as Error).message}`);
+  } finally {
+    checking.value = false;
+  }
+}
+
 const aliasOptions = computed(() => aliases.value.map((a) => ({ label: a.name, value: a.name })));
 const defaultModelOptions = computed(() => aliasOptions.value);
 
@@ -164,7 +197,7 @@ async function load(): Promise<void> {
     providers.value = Object.entries(cfg.providers).map(([name, p]) => ({
       name,
       base_url: p.base_url,
-      api_key: p.api_key,
+      api_key: '', // 不回填掩码：失焦保存时会把掩码串当真实密钥写回，破坏原密钥；空 = 保持原值
       models: [...p.models],
     }));
     aliases.value = Object.entries(cfg.aliases).map(([name, targets]) => ({ name, targets: [...targets] }));
@@ -248,8 +281,9 @@ function removeProvider(index: number): void {
     content: `确认删除 provider「${name}」吗？此操作不可撤销。`,
     positiveText: '删除',
     negativeText: '取消',
-    onPositiveClick() {
+    async onPositiveClick() {
       providers.value.splice(index, 1);
+      await autoSave({ successMsg: `已删除 provider ${name} 并保存` });
     },
   });
 }
@@ -262,24 +296,16 @@ function removeAlias(index: number): void {
     content: `确认删除别名「${name}」吗？此操作不可撤销。`,
     positiveText: '删除',
     negativeText: '取消',
-    onPositiveClick() {
+    async onPositiveClick() {
       aliases.value.splice(index, 1);
+      await autoSave({ successMsg: `已删除别名 ${name} 并保存` });
     },
   });
 }
 
-/** 保存 keys 变更（添加/删除即自动保存）：成功后提示，失败则拉取服务端状态回滚本地编辑 */
+/** 保存 keys 变更（添加/删除即自动保存）：委托 autoSave 统一处理 */
 async function saveKeysChange(successMsg: string): Promise<void> {
-  saving.value = true;
-  try {
-    await saveConfig(buildDraft());
-    message.success(successMsg);
-  } catch (e) {
-    await load(); // 拉取服务端真实状态，回滚本地编辑
-    message.error(`保存失败：${(e as Error).message}`);
-  } finally {
-    saving.value = false;
-  }
+  await autoSave({ successMsg });
 }
 
 /** 复制文本到剪贴板：优先 Clipboard API，不可用（非 HTTPS/localhost）时降级 execCommand */
@@ -355,17 +381,30 @@ function buildDraft(): ConfigDraft {
   };
 }
 
-async function onSave(): Promise<void> {
+/** 任意字段变更后自动保存（失焦/变更触发）；成功即落盘，失败才回滚本地编辑 */
+async function autoSave(opts?: { silent?: boolean; successMsg?: string }): Promise<void> {
   saving.value = true;
   try {
     await saveConfig(buildDraft());
-    message.success('已保存，热加载生效');
-    await load(); // 重新拉取（密钥会重新掩码）
+    if (opts?.successMsg) message.success(opts.successMsg);
+    checkIssues.value = null; // 配置已变动，上一轮体检结果作废（重新检查才更新标红）
+    // 成功不重新拉取：避免覆盖用户正在进行的其他编辑（连续输入/多字段同时改）
   } catch (e) {
-    message.error((e as Error).message);
+    await load(); // 失败则拉取服务端真实状态，回滚本地编辑
+    if (!opts?.silent) message.error(`保存失败：${(e as Error).message}`);
   } finally {
     saving.value = false;
   }
+}
+
+// 高频变更（动态列表逐项输入）用 400ms debounce，避免逐字符并发 PUT 造成的竞态/覆盖
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleAutoSave(opts?: { silent?: boolean; successMsg?: string }): void {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    void autoSave(opts);
+  }, 400);
 }
 </script>
 
@@ -410,20 +449,52 @@ async function onSave(): Promise<void> {
           <div>
             <h2 style="margin: 0">model-gate 配置</h2>
             <p style="margin: 2px 0 0; font-size: 12px; opacity: 0.85">
-              config.json 是唯一真相源 · 保存即校验 + 热加载生效
+              config.json 是唯一真相源 · 改动即时保存 + 热加载生效
             </p>
           </div>
         </div>
-        <n-dropdown trigger="click" placement="bottom-end" :options="userMenuOptions" @select="onUserMenuSelect">
-          <n-button quaternary circle size="small" aria-label="用户菜单">
-            <n-icon color="#ffffff" :size="22"><PersonCircleOutline /></n-icon>
+        <div style="display: flex; align-items: center; gap: 10px">
+          <n-button
+            size="small"
+            :loading="checking"
+            class="check-config-btn"
+            @click="onCheckConfig"
+          >
+            <template #icon><n-icon><CheckmarkCircleOutline /></n-icon></template>
+            检查配置正确性
           </n-button>
-        </n-dropdown>
+          <n-dropdown trigger="click" placement="bottom-end" :options="userMenuOptions" @select="onUserMenuSelect">
+            <n-button quaternary circle size="small" aria-label="用户菜单">
+              <n-icon color="#ffffff" :size="22"><PersonCircleOutline /></n-icon>
+            </n-button>
+          </n-dropdown>
+        </div>
       </div>
 
       <n-alert v-if="loadError" type="error" :title="'加载配置失败'" style="margin-bottom: 16px">
         {{ loadError }}
       </n-alert>
+
+      <!-- 配置体检结果：检查后展示，错误项会在对应字段标红 -->
+      <div v-if="checkIssues !== null" class="check-result" :class="{ 'has-error': checkIssues.some((i) => i.level === 'error') }">
+        <div class="check-summary">
+          <n-icon v-if="checkIssues.some((i) => i.level === 'error')" :size="18"><AlertCircleOutline /></n-icon>
+          <n-icon v-else :size="18"><CheckmarkCircleOutline /></n-icon>
+          <span v-if="checkIssues.some((i) => i.level === 'error')">
+            发现 {{ checkIssues.filter((i) => i.level === 'error').length }} 个错误、{{ checkIssues.filter((i) => i.level === 'warning').length }} 个提示，已在下方标红
+          </span>
+          <span v-else-if="checkIssues.length === 0">配置完全正确</span>
+          <span v-else>未发现错误（{{ checkIssues.length }} 个提示项）</span>
+        </div>
+        <ul v-if="checkIssues.length" class="check-list">
+          <li v-for="(issue, idx) in checkIssues" :key="idx" :class="issue.level">
+            <n-tag :type="issue.level === 'error' ? 'error' : 'warning'" size="small" round>
+              {{ issue.level === 'error' ? '错误' : '提示' }}
+            </n-tag>
+            <span class="check-msg">{{ issue.message }}</span>
+          </li>
+        </ul>
+      </div>
 
       <template v-if="!loadError">
         <n-card size="small" style="margin-bottom: 16px" class="soft-card">
@@ -440,7 +511,9 @@ async function onSave(): Promise<void> {
             以上为启动参数，只读展示；修改需编辑 config.json 后重启服务。
           </div>
           <n-form-item label="默认模型（agent 未指定 model 时使用）" style="margin-top: 12px">
-            <n-select v-model:value="defaultModel" :options="defaultModelOptions" placeholder="选择一个别名" />
+            <div :class="{ 'field-error': defaultModelError }" style="width: 100%">
+              <n-select v-model:value="defaultModel" :options="defaultModelOptions" placeholder="选择一个别名" @update:value="autoSave()" />
+            </div>
           </n-form-item>
         </n-card>
 
@@ -531,6 +604,7 @@ async function onSave(): Promise<void> {
                 </span>
               </template>
               <div
+                :class="{ 'field-error': erroredProviders.has(p.name) }"
                 style="
                   border: 1px solid #eee;
                   border-radius: 8px;
@@ -547,7 +621,7 @@ async function onSave(): Promise<void> {
                 <div style="display: flex; align-items: baseline; gap: 12px" class="provider-name-row">
                   <div style="width: 160px; flex-shrink: 0">
                     <n-form-item label="名称" style="margin-bottom: 0">
-                      <n-input v-model:value="p.name" placeholder="如 deepseek" />
+                      <n-input v-model:value="p.name" placeholder="如 deepseek" @blur="autoSave()" />
                     </n-form-item>
                   </div>
                   <div style="flex: 1; min-width: 0" class="provider-base-url">
@@ -556,6 +630,7 @@ async function onSave(): Promise<void> {
                         v-model:value="p.base_url"
                         placeholder="https://api.deepseek.com/v1"
                         style="width: 100%"
+                        @blur="autoSave()"
                       />
                     </n-form-item>
                   </div>
@@ -569,6 +644,7 @@ async function onSave(): Promise<void> {
                         show-password-on="click"
                         placeholder="留空保持原值"
                         style="width: 100%"
+                        @blur="autoSave()"
                       />
                     </n-form-item>
                   </div>
@@ -589,7 +665,7 @@ async function onSave(): Promise<void> {
                   </n-tag>
                 </div>
                 <n-form-item label="模型列表">
-                  <n-dynamic-input v-model:value="p.models" placeholder="模型 id，如 deepseek-chat" style="width: 100%" />
+                  <n-dynamic-input v-model:value="p.models" placeholder="模型 id，如 deepseek-chat" style="width: 100%" @update:value="scheduleAutoSave()" />
                 </n-form-item>
               </div>
             </n-collapse-item>
@@ -603,14 +679,14 @@ async function onSave(): Promise<void> {
           <span class="card-title"><n-icon :size="16"><GitBranchOutline /></n-icon> 模型别名（aliases，agent 只认别名）</span>
         </template>
         <n-space vertical>
-          <div v-for="(a, i) in aliases" :key="i" style="border: 1px solid #eee; border-radius: 8px; padding: 12px">
+          <div v-for="(a, i) in aliases" :key="i" :class="{ 'field-error': erroredAliases.has(a.name) }" style="border: 1px solid #eee; border-radius: 8px; padding: 12px">
             <n-space justify="space-between" align="center">
               <span style="font-weight: 600">alias #{{ i + 1 }}</span>
               <n-button size="small" type="error" quaternary @click="removeAlias(i)">删除</n-button>
             </n-space>
             <n-space>
               <n-form-item label="别名" style="margin-bottom: 0">
-                <n-input v-model:value="a.name" placeholder="如 fast" style="width: 160px" />
+                <n-input v-model:value="a.name" placeholder="如 fast" style="width: 160px" @blur="autoSave()" />
               </n-form-item>
             </n-space>
             <n-form-item label="目标（有序，failover 顺序，每行一个 provider:model）">
@@ -618,6 +694,7 @@ async function onSave(): Promise<void> {
                 v-model:value="a.targets"
                 placeholder="如 deepseek:deepseek-chat"
                 style="width: 100%"
+                @update:value="scheduleAutoSave()"
               />
             </n-form-item>
           </div>
@@ -626,13 +703,6 @@ async function onSave(): Promise<void> {
       </n-card>
       </template>
 
-      <!-- 保存：页面底部固定悬浮栏，滚动时始终可见 -->
-      <div class="floating-save">
-        <n-button type="primary" size="large" :loading="saving" @click="onSave">
-          <template #icon><n-icon><SaveOutline /></n-icon></template>
-          保存
-        </n-button>
-      </div>
       </div>
     </template>
   </div>
@@ -675,23 +745,68 @@ async function onSave(): Promise<void> {
   gap: 6px;
 }
 
-/* 保存按钮：页面底部固定悬浮栏，滚动时始终可见 */
-.floating-save {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  justify-content: center;
-  padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px));
-  background: linear-gradient(to top, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.75));
-  backdrop-filter: blur(8px);
-  border-top: 1px solid rgba(99, 102, 241, 0.15);
-  z-index: 100;
-}
-/* 编辑区容器：底部留白，避免内容被固定悬浮的保存栏遮挡 */
+/* 编辑区容器：底部留白 */
 .editor-content {
-  padding-bottom: 110px;
+  padding-bottom: 24px;
+}
+
+/* 体检出错的字段：红色边框 + 柔和红光，直观定位问题处 */
+.field-error {
+  border-color: #e5484d !important;
+  box-shadow: 0 0 0 3px rgba(229, 72, 77, 0.18) !important;
+}
+
+/* 检查配置正确性结果框 */
+.check-config-btn {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+.check-config-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.28);
+}
+.check-result {
+  border: 1px solid #e3e8ef;
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  background: #fff;
+}
+.check-result.has-error {
+  border-color: #f5b5b8;
+  background: #fff7f7;
+}
+.check-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #1f2937;
+}
+.check-result.has-error .check-summary {
+  color: #c0392b;
+}
+.check-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.check-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.check-list li.warning .check-msg {
+  color: #8a6d3b;
+}
+.check-list li.error .check-msg {
+  color: #b03a2e;
 }
 
 /* 卡片美化：圆角 + 柔和阴影 + hover 微浮起 */

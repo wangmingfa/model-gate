@@ -45,6 +45,21 @@ export interface Config {
 /** 配置加载/校验失败 */
 export class ConfigError extends Error {}
 
+/** 配置体检问题：level 区分错误/告警；target 用于前端定位具体字段标红 */
+export interface ConfigIssue {
+  level: 'error' | 'warning';
+  message: string;
+  /**
+   * 定位标识，供前端把具体出错处标红：
+   * - provider:<name>  上游运营商卡片
+   * - alias:<name>     模型别名卡片
+   * - default_model    默认模型下拉
+   * - keys / providers / aliases  对应区块（仅告警）
+   * - global           结构性错误（保存已被拦截，无法定位到具体字段）
+   */
+  target?: string;
+}
+
 const ENV_PATTERN = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/;
 
 /**
@@ -176,22 +191,16 @@ export function validateConfig(raw: unknown, path = '<config>', mode: 'strict' |
       if (sep <= 0 || sep === t.length - 1) {
         fail(`aliases.${name} 中 "${t}" 必须是 "provider:model" 形式`);
       }
-      const provName = t.slice(0, sep);
-      const modelName = t.slice(sep + 1);
-      const prov = providers[provName];
-      if (!prov) fail(`aliases.${name} 中 "${t}" 引用了不存在的 provider "${provName}"`);
-      if (!prov.models.includes(modelName)) {
-        fail(`aliases.${name} 中 "${t}" 引用的模型 "${modelName}" 不在 provider "${provName}" 的 models 列表中`);
-      }
+        const provName = t.slice(0, sep);
+        const modelName = t.slice(sep + 1);
+        // 引用完整性（provider 是否存在、模型是否在 provider 的 models 中）交由 checkConfig 收集报告，
+        // 不在校验阶段拦截，以支持分步配置（先配 alias 再补 provider）并由"检查配置正确性"按钮标红。
     }
     aliases[name] = targets;
   }
 
   const default_model = typeof r.default_model === 'string' ? r.default_model : (Object.keys(aliases)[0] ?? '');
-  // 当 aliases 为空（未配置别名）时，default_model 可留空或指向任意值，无需校验
-  if (Object.keys(aliases).length > 0 && !aliases[default_model]) {
-    fail(`default_model "${default_model}" 不是已定义的别名（可用: ${Object.keys(aliases).join(', ')}）`);
-  }
+  // default_model 是否为已定义别名的校验，交由 checkConfig 收集报告，不在校验阶段拦截
 
   // 管理界面密码：支持 ${ENV} 插值；缺省/空 = 未配置（非回环访问登录页时提示去配置文件配置）
   let admin_password = '';
@@ -209,4 +218,63 @@ export function validateConfig(raw: unknown, path = '<config>', mode: 'strict' |
   }
 
   return { port, host, default_model, timeout_seconds, access_log, keys, admin_password, providers, aliases };
+}
+
+/**
+ * 配置正确性体检：对一份已通过结构校验的配置，收集所有语义问题（错误 + 告警），不抛错。
+ * 与 validateConfig 的区别：validateConfig 只做结构合法性校验并在首个问题抛错；
+ * 这里聚焦引用完整性等语义问题，汇总全部问题，供「检查配置正确性」按钮做完整报告，
+ * 并通过 target 定位到具体字段（provider/alias/default_model）在页面标红。
+ */
+export function checkConfig(cfg: Config): ConfigIssue[] {
+  const issues: ConfigIssue[] = [];
+
+  // 引用完整性：alias -> provider -> model
+  for (const [aliasName, targets] of Object.entries(cfg.aliases)) {
+    for (const t of targets) {
+      const sep = t.indexOf(':');
+      const provName = t.slice(0, sep);
+      const modelName = t.slice(sep + 1);
+      const prov = cfg.providers[provName];
+      if (!prov) {
+        issues.push({
+          level: 'error',
+          message: `别名「${aliasName}」引用了不存在的 provider「${provName}」（${t}）`,
+          target: `alias:${aliasName}`,
+        });
+      } else if (!prov.models.includes(modelName)) {
+        issues.push({
+          level: 'error',
+          message: `别名「${aliasName}」引用的模型「${modelName}」不在 provider「${provName}」的 models 列表中（${t}）`,
+          target: `alias:${aliasName}`,
+        });
+      }
+    }
+  }
+
+  // default_model 有效性
+  if (cfg.default_model && !cfg.aliases[cfg.default_model]) {
+    issues.push({
+      level: 'error',
+      message: `default_model「${cfg.default_model}」不是已定义的别名`,
+      target: 'default_model',
+    });
+  }
+
+  // 信息性告警（不影响运行，但提示用户预期行为）
+  if (cfg.keys.length === 0) {
+    issues.push({
+      level: 'warning',
+      message: '尚未配置任何下游密钥（keys 为空），/v1/* 接口将返回 503 引导去 /admin 配置',
+      target: 'keys',
+    });
+  }
+  if (Object.keys(cfg.providers).length === 0) {
+    issues.push({ level: 'warning', message: '尚未配置任何上游 provider', target: 'providers' });
+  }
+  if (Object.keys(cfg.aliases).length === 0) {
+    issues.push({ level: 'warning', message: '尚未定义任何别名（aliases 为空），agent 无法通过 /v1/models 获取可用模型', target: 'aliases' });
+  }
+
+  return issues;
 }
