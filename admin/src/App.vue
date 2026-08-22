@@ -32,6 +32,7 @@ import {
   AlertCircleOutline,
   PersonCircleOutline,
   CheckmarkCircleOutline,
+  CopyOutline,
 } from '@vicons/ionicons5';
 import { getConfig, saveConfig, testConnection, authStatus, login, logout, generateKey, checkConfig, type ConfigDraft, type ClientKeyDraft, type ConfigIssue } from './api';
 
@@ -228,6 +229,20 @@ function addAlias(): void {
 function maskKey(key: string): string {
   if (key.length <= 6) return '****';
   return `${key.slice(0, 3)}****${key.slice(-3)}`;
+}
+
+/** ---- 接入信息 ---- */
+/** agent 用的 Base URL：admin 与网关同源部署，取浏览器 hostname + 配置端口（开发模式下
+ *  页面跑在 5173，但 API 在配置端口上，不能用 location.port）；scheme 跟随当前页面
+ *  （本机直连是 http，若经 https 反代访问则用 https） */
+const apiBaseUrl = computed(() => {
+  const scheme = window.location.protocol === 'https:' ? 'https' : 'http';
+  return `${scheme}://${window.location.hostname}:${startup.value.port}/v1`;
+});
+
+async function copyApiBaseUrl(): Promise<void> {
+  if (await copyText(apiBaseUrl.value)) message.success('API 地址已复制到剪贴板');
+  else message.error('复制失败，请手动选择复制');
 }
 
 /** 添加密钥：填名称 → 自动生成 sk- + 32 位随机十六进制密钥，并立即保存（完整密钥只在弹窗中展示一次） */
@@ -503,6 +518,23 @@ function scheduleAutoSave(opts?: { silent?: boolean; successMsg?: string }): voi
       </div>
 
       <template v-if="!loadError">
+        <!-- 接入信息：给 coding agent 配置用的地址，一键复制 -->
+        <n-card size="small" style="margin-bottom: 16px" class="soft-card">
+          <template #header>
+            <span class="card-title"><n-icon :size="16"><LinkOutline /></n-icon> 接入信息（配到 coding agent 用）</span>
+          </template>
+          <div class="api-url-row">
+            <code class="api-url">{{ apiBaseUrl }}</code>
+            <n-button size="small" type="primary" @click="copyApiBaseUrl">
+              <template #icon><n-icon><CopyOutline /></n-icon></template>
+              复制 API 地址
+            </n-button>
+          </div>
+          <div style="margin-top: 8px; color: #999; font-size: 12px">
+            OpenAI 兼容 Base URL；API Key 在下方「下游密钥」点复制；model 填别名（未指定时用 default_model）。
+          </div>
+        </n-card>
+
         <n-card size="small" style="margin-bottom: 16px" class="soft-card">
           <template #header>
             <span class="card-title"><n-icon :size="16"><SettingsOutline /></n-icon> 基本设置</span>
@@ -851,6 +883,22 @@ function scheduleAutoSave(opts?: { silent?: boolean; successMsg?: string }): voi
 .key-add-row {
   flex-wrap: wrap;
 }
+/* 接入信息：API 地址行 */
+.api-url-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.api-url {
+  flex: 1;
+  font-size: 14px;
+  padding: 6px 10px;
+  background: #f5f5f5;
+  border-radius: 6px;
+  word-break: break-all;
+  user-select: all;
+}
+
 .key-row {
   display: flex;
   flex-direction: column;
