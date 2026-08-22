@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, h } from 'vue';
+import { ref, onMounted, computed, h, markRaw } from 'vue';
 import { useMessage, useDialog, NIcon, NDropdown } from 'naive-ui';
 import {
   NCard,
@@ -158,6 +158,9 @@ async function onCheckConfig(): Promise<void> {
       else message.success('未发现错误（仅有提示项）');
     } else {
       message.error(`发现 ${errors.length} 个错误，已在页面中标红`);
+      // 自动切到第一个出错项所在的版块，直接看到标红
+      const section = sectionOfTarget(errors[0]?.target);
+      if (section) activeSection.value = section;
     }
   } catch (e) {
     message.error(`检查失败：${(e as Error).message}`);
@@ -168,6 +171,26 @@ async function onCheckConfig(): Promise<void> {
 
 const aliasOptions = computed(() => aliases.value.map((a) => ({ label: a.name, value: a.name })));
 const defaultModelOptions = computed(() => aliasOptions.value);
+
+/** ---- 分版块导航：左侧切换，一次只看一个版块，缩短页面 ---- */
+const activeSection = ref('access');
+const sections = computed(() => [
+  { key: 'access', label: '接入信息', icon: markRaw(LinkOutline) },
+  { key: 'basic', label: '基本设置', icon: markRaw(SettingsOutline) },
+  { key: 'keys', label: '下游密钥', icon: markRaw(KeyOutline), count: keys.value.length },
+  { key: 'providers', label: '上游运营商', icon: markRaw(ServerOutline), count: providers.value.length },
+  { key: 'aliases', label: '模型别名', icon: markRaw(GitBranchOutline), count: aliases.value.length },
+]);
+
+/** 检查结果里的错误 target -> 所属版块：查出错误后自动跳过去看标红 */
+function sectionOfTarget(target?: string): string | null {
+  if (!target) return null;
+  if (target.startsWith('provider:')) return 'providers';
+  if (target.startsWith('alias:')) return 'aliases';
+  if (target === 'default_model') return 'basic';
+  if (target === 'keys') return 'keys';
+  return null;
+}
 
 // 测试连接状态：providerName -> { testing, result }
 const testStates = ref<Record<string, { testing: boolean; result: string; ok: boolean }>>({});
@@ -529,8 +552,25 @@ function scheduleAutoSave(opts?: { silent?: boolean; successMsg?: string }): voi
       </div>
 
       <template v-if="!loadError">
+        <!-- 分版块：左侧导航切换，一次只看一个版块，缩短页面长度 -->
+        <div class="section-layout">
+          <aside class="section-nav">
+            <button
+              v-for="s in sections"
+              :key="s.key"
+              type="button"
+              :class="{ active: activeSection === s.key }"
+              @click="activeSection = s.key"
+            >
+              <n-icon :size="16"><component :is="s.icon" /></n-icon>
+              <span>{{ s.label }}</span>
+              <span v-if="s.count" class="nav-count">{{ s.count }}</span>
+            </button>
+          </aside>
+          <div class="section-body">
         <!-- 接入信息：给 coding agent 配置用的地址，一键复制 -->
-        <n-card size="small" style="margin-bottom: 16px" class="soft-card">
+        <div v-show="activeSection === 'access'">
+        <n-card size="small" class="soft-card">
           <template #header>
             <span class="card-title"><n-icon :size="16"><LinkOutline /></n-icon> 接入信息（配到 coding agent 用）</span>
           </template>
@@ -545,8 +585,10 @@ function scheduleAutoSave(opts?: { silent?: boolean; successMsg?: string }): voi
             OpenAI 兼容 Base URL；API Key 在下方「下游密钥」点复制；model 填别名（未指定时用 default_model）。
           </div>
         </n-card>
+        </div>
 
-        <n-card size="small" style="margin-bottom: 16px" class="soft-card">
+        <div v-show="activeSection === 'basic'">
+        <n-card size="small" class="soft-card">
           <template #header>
             <span class="card-title"><n-icon :size="16"><SettingsOutline /></n-icon> 基本设置</span>
           </template>
@@ -565,11 +607,13 @@ function scheduleAutoSave(opts?: { silent?: boolean; successMsg?: string }): voi
             </div>
           </n-form-item>
         </n-card>
+        </div>
 
-      <n-card size="small" style="margin-bottom: 16px" class="soft-card">
-        <template #header>
-          <span class="card-title"><n-icon :size="16"><KeyOutline /></n-icon> 下游密钥（keys，agent 连入网关用）</span>
-        </template>
+        <div v-show="activeSection === 'keys'">
+        <n-card size="small" class="soft-card">
+          <template #header>
+            <span class="card-title"><n-icon :size="16"><KeyOutline /></n-icon> 下游密钥（keys，agent 连入网关用）</span>
+          </template>
         <!-- 添加：填名称，密钥自动生成 -->
         <n-space style="margin-bottom: 12px" class="key-add-row">
           <n-input v-model:value="newKeyName" placeholder="密钥名称，如 Claude / Cursor" style="width: 260px" @keyup.enter="addKey" />
@@ -633,8 +677,10 @@ function scheduleAutoSave(opts?: { silent?: boolean; successMsg?: string }): voi
           </n-button>
         </n-space>
       </n-modal>
+        </div>
 
-      <n-card size="small" style="margin-bottom: 16px" class="soft-card">
+        <div v-show="activeSection === 'providers'">
+      <n-card size="small" class="soft-card">
         <template #header>
           <span class="card-title"><n-icon :size="16"><ServerOutline /></n-icon> 上游运营商（providers）</span>
         </template>
@@ -722,8 +768,10 @@ function scheduleAutoSave(opts?: { silent?: boolean; successMsg?: string }): voi
           <n-button size="small" @click="addProvider">+ 添加 provider</n-button>
         </n-space>
       </n-card>
+      </div>
 
-      <n-card size="small" style="margin-bottom: 16px" class="soft-card">
+      <div v-show="activeSection === 'aliases'">
+      <n-card size="small" class="soft-card">
         <template #header>
           <span class="card-title"><n-icon :size="16"><GitBranchOutline /></n-icon> 模型别名（aliases，agent 只认别名）</span>
         </template>
@@ -765,6 +813,9 @@ function scheduleAutoSave(opts?: { silent?: boolean; successMsg?: string }): voi
           <n-button size="small" @click="addAlias">+ 添加别名</n-button>
         </n-space>
       </n-card>
+      </div>
+          </div><!-- /section-body -->
+        </div><!-- /section-layout -->
       </template>
 
       </div>
@@ -814,11 +865,68 @@ function scheduleAutoSave(opts?: { silent?: boolean; successMsg?: string }): voi
   padding-bottom: 24px;
 }
 
-/* 页面外层容器：桌面 24px 边距，移动端收窄（见媒体查询） */
+/* 页面外层容器：分版块后左侧导航占宽，整体放宽到 980px；移动端收窄（见媒体查询） */
 .page-wrap {
-  max-width: 900px;
+  max-width: 980px;
   margin: 0 auto;
   padding: 24px;
+}
+
+/* ---- 分版块布局：左侧导航 + 右侧内容，一次只看一个版块 ---- */
+.section-layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+.section-nav {
+  width: 168px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.section-nav button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #555;
+  text-align: left;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.section-nav button:hover {
+  background: rgba(99, 102, 241, 0.08);
+}
+.section-nav button.active {
+  background: #fff;
+  color: #4f46e5;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.18);
+}
+/* 数量徽标：keys/providers/aliases 条目数 */
+.nav-count {
+  margin-left: auto;
+  font-size: 12px;
+  color: #999;
+  background: #eef0f5;
+  border-radius: 10px;
+  padding: 0 8px;
+  line-height: 18px;
+}
+.section-nav button.active .nav-count {
+  background: #e0e7ff;
+  color: #4f46e5;
+}
+.section-body {
+  flex: 1;
+  min-width: 0;
 }
 
 /* 体检出错的字段：红色边框 + 柔和红光，直观定位问题处 */
@@ -974,6 +1082,29 @@ function scheduleAutoSave(opts?: { silent?: boolean; successMsg?: string }): voi
   .check-result {
     margin-bottom: 10px;
     padding: 10px 12px;
+  }
+  /* 分版块：窄屏导航变横向可滚动条，位于内容上方 */
+  .section-layout {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .section-nav {
+    width: 100%;
+    position: static;
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 6px;
+    padding-bottom: 2px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .section-nav button {
+    flex-shrink: 0;
+    white-space: nowrap;
+    padding: 7px 10px;
+    font-size: 13px;
+  }
+  .nav-count {
+    margin-left: 4px;
   }
   .key-top {
     flex-wrap: wrap;
