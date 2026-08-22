@@ -57,12 +57,21 @@ setInterval(() => {
 const includeAdminStatic = process.env.MODEL_GATE_DEV !== '1';
 const app = createApp(() => cfg, { configPath, includeAdminStatic });
 
-Bun.serve({
+// 显式接管终止信号并优雅停服：避免 bun run --parallel 下 SIGINT 传播失败导致 socket 未释放、端口残留占用
+const server = Bun.serve({
   hostname: cfg.host,
   port: cfg.port,
   // 把 Bun server 作为 env 传入，让 /admin 的回环检查能拿到 requestIP
   fetch: (req, server) => app.fetch(req, server),
 });
+
+function shutdown(signal: string): void {
+  console.log(`[model-gate] 收到 ${signal}，正在关闭...`);
+  server.stop(true);
+  process.exit(0);
+}
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 if (cfg.host === '0.0.0.0') {
   if (includeAdminStatic) {
