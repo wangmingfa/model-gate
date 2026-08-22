@@ -69,7 +69,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 }
 
 /** 从文件加载并校验配置；任何不合法之处抛 ConfigError */
-export function loadConfig(path: string): Config {
+export function loadConfig(path: string, mode: 'strict' | 'boot' = 'boot'): Config {
   let text: string;
   try {
     text = readFileSync(path, 'utf-8');
@@ -83,10 +83,10 @@ export function loadConfig(path: string): Config {
   } catch (e) {
     throw new ConfigError(`配置文件 ${path} 不是合法 JSON: ${(e as Error).message}`);
   }
-  return validateConfig(raw, path);
+  return validateConfig(raw, path, mode);
 }
 
-export function validateConfig(raw: unknown, path = '<config>'): Config {
+export function validateConfig(raw: unknown, path = '<config>', mode: 'strict' | 'boot' = 'strict'): Config {
   const fail = (msg: string): never => {
     throw new ConfigError(`配置错误 ${path}: ${msg}`);
   };
@@ -108,7 +108,7 @@ export function validateConfig(raw: unknown, path = '<config>'): Config {
   const access_log = r.access_log !== false; // 默认开启
 
   const keysRaw: unknown[] = Array.isArray(r.keys) ? r.keys : []; // TS 5.9 对 Record 索引的 Array.isArray 收窄不可靠
-  if (keysRaw.length === 0) fail('keys 必须是非空数组（下游鉴权密钥）');
+  if (mode === 'strict' && keysRaw.length === 0) fail('keys 必须是非空数组（下游鉴权密钥）');
   const keys: ClientKey[] = [];
   for (const item of keysRaw) {
     if (typeof item !== 'object' || item === null) fail('keys 的每一项必须是对象 { name, key, created_at }');
@@ -187,10 +187,11 @@ export function validateConfig(raw: unknown, path = '<config>'): Config {
     aliases[name] = targets;
   }
 
-  if (Object.keys(aliases).length === 0) fail('aliases 至少要定义一个别名');
+  if (mode === 'strict' && Object.keys(aliases).length === 0) fail('aliases 至少要定义一个别名');
 
   const default_model = typeof r.default_model === 'string' ? r.default_model : (Object.keys(aliases)[0] ?? '');
-  if (!aliases[default_model]) {
+  // boot 模式（首跑空配置）下允许不定义 default_model
+  if ((mode === 'strict' || Object.keys(aliases).length > 0) && !aliases[default_model]) {
     fail(`default_model "${default_model}" 不是已定义的别名（可用: ${Object.keys(aliases).join(', ')}）`);
   }
 

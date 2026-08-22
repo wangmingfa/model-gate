@@ -66,6 +66,19 @@ export function createApp(
     const auth = c.req.header('authorization') ?? '';
     const key = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
     const cfg = getConfig();
+    // 首跑尚未配置 keys：返回 503 引导去 /admin 配置，而非统一 401
+    if (cfg.keys.length === 0) {
+      return c.json(
+        {
+          error: {
+            message: '网关尚未完成配置：请访问 /admin 添加至少一个下游密钥（keys）后再发起请求',
+            type: 'service_unavailable',
+            code: 'not_configured',
+          },
+        },
+        503,
+      );
+    }
     if (!cfg.keys.some((k) => k.key === key)) {
       return c.json(
         {

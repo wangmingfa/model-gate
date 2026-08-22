@@ -14,7 +14,8 @@
     "embed": "cd admin && bun install && bun run build && bun scripts/embed-assets.ts",
     "build": "bun run embed && bun build src/index.ts --target=bun --outfile model-gate.js",
     "test": "bun test --path-ignore-patterns=admin",
-    "typecheck": "bun node_modules/typescript/bin/tsc --noEmit"
+    "typecheck": "bun node_modules/typescript/bin/tsc --noEmit",
+    "postinstall": "bun install --cwd admin"
   },
   "dependencies": {
     "hono": "^4.6.0"

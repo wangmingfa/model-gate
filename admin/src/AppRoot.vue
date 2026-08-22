@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NConfigProvider, NMessageProvider, type GlobalThemeOverrides } from 'naive-ui';
+import { NConfigProvider, NMessageProvider, NDialogProvider, type GlobalThemeOverrides } from 'naive-ui';
 import App from './App.vue';
 
 // 品牌主题：靛紫渐变系，圆角更柔和
@@ -25,7 +25,9 @@ const themeOverrides: GlobalThemeOverrides = {
   <div class="app-bg">
     <n-config-provider :theme-overrides="themeOverrides">
       <n-message-provider>
-        <App />
+        <n-dialog-provider>
+          <App />
+        </n-dialog-provider>
       </n-message-provider>
     </n-config-provider>
   </div>

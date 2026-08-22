@@ -26,7 +26,7 @@ const configPath =
 
 let cfg: Config;
 try {
-  cfg = loadConfig(configPath);
+  cfg = loadConfig(configPath, 'boot');
 } catch (e) {
   console.error(`[model-gate] ${e instanceof ConfigError ? e.message : (e as Error).message}`);
   process.exit(1);
@@ -45,10 +45,10 @@ setInterval(() => {
   if (mtime === lastMtime) return;
   lastMtime = mtime;
   try {
-    const next = loadConfig(configPath);
+    const next = loadConfig(configPath, 'boot');
     cfg = next;
     configureLogging(next.access_log);
-    console.log(`[model-gate] 配置已热加载: ${configPath}（默认模型=${next.default_model}，别名=${Object.keys(next.aliases).join(', ')}）`);
+    console.log(`[model-gate] 配置已热加载: ${configPath}（默认模型=${Object.keys(next.aliases).length > 0 ? next.default_model : '(未配置)'}，别名=${Object.keys(next.aliases).join(', ') || '(未配置)'}）`);
   } catch (e) {
     console.error(`[model-gate] 配置重载失败，保留当前配置: ${e instanceof ConfigError ? e.message : (e as Error).message}`);
   }
@@ -89,4 +89,4 @@ if (cfg.host === '0.0.0.0') {
   console.log(`[model-gate] 已启动（开发模式，仅 API）: http://${cfg.host}:${cfg.port}`);
   console.log(`[model-gate] 管理界面通过 Vite: http://localhost:5173/admin`);
 }
-console.log(`[model-gate] 配置: ${configPath} | 别名: ${Object.keys(cfg.aliases).join(', ')} | 默认模型: ${cfg.default_model}`);
+console.log(`[model-gate] 配置: ${configPath} | 别名: ${Object.keys(cfg.aliases).join(', ') || '(未配置)'} | 默认模型: ${Object.keys(cfg.aliases).length > 0 ? cfg.default_model : '(未配置)'}`);
