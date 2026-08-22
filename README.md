@@ -10,12 +10,12 @@ LLM API 中转网关：在一个配置文件里配置多家运营商的模型（
 
 - **统一 OpenAI 兼容入口**：`POST /v1/chat/completions`（含流式 SSE）+ `GET /v1/models`
 - **模型别名**：agent 只认识别名（如 `fast`、`reason`），不感知背后的真实模型；响应与流式 chunk 中的 model 字段统一改写为别名
-- **有序 failover**：一个别名可绑多个 `provider:model`，网络错误 / 超时 / 非 2xx 自动按顺序切换下一个
+- **有序 failover**：一个别名可绑多个 `provider:model`（数组，顺序即 failover 顺序）；管理界面里每个别名当前从下拉选一个目标（数组格式仍允许配置多个作为 failover 备选）
 - **多下游密钥**：多个 agent 各用一个 key，为按 agent 记账/排查打基础
 - **配置热加载**：改 `config.json` 立即生效，无需重启
 - **请求日志**：控制台每请求一行摘要 + `access.log`（JSONL）逐请求记录 token 用量，可开关
 - **密钥支持环境变量**：`api_key` 可以写 `${ENV_VAR}` 引用环境变量
-- **Web 配置界面**：`/admin` 下的 SPA（Vite+Vue3+Naive UI），可视化编辑 provider/别名/密钥/默认模型，保存即校验并热加载；本机回环免登录，非本机访问需 `admin_password` 密码登录，密钥默认掩码显示
+- **Web 配置界面**：`/admin` 下的 SPA（Vite+Vue3+Naive UI），可视化编辑提供商(provider)/别名/密钥/默认模型，保存即校验并热加载；本机回环免登录，非本机访问需 `admin_password` 密码登录；`api_key` 以密码框遮挡显示
 
 ## 快速开始
 
@@ -26,17 +26,23 @@ curl -fsSL https://bun.sh/install | bash
 ```
 
 ```bash
-# 1. 安装依赖
+# 1. 安装依赖（会同时安装 admin 子项目依赖）
 bun install
 
 # 2. 复制示例配置并编辑（填你的各家 key）
 cp config.example.json config.json
 vim config.json
 
-# 3. 启动
-bun start            # 等价于 bun src/index.ts
-# 开发模式（文件变更自动重启）: bun dev
-# 指定配置文件: bun src/index.ts -c /path/to/config.json
+# 3. 开发模式（api 热重载 + Vite 前端热更新，开箱即用）
+bun run dev
+
+# 3'. 生产构建：内联前端资源并打包成单文件二进制 model-gate.js
+bun run build
+bun run model-gate.js          # 运行构建产物（等同于 node 跑这个 bun 二进制）
+
+# 指定配置文件（开发/生产均可）:
+bun run dev -- --config /path/to/config.json
+# 或设环境变量 MODEL_GATE_CONFIG=/path/to/config.json
 ```
 
 ## Web 配置界面（/admin）
@@ -44,8 +50,8 @@ bun start            # 等价于 bun src/index.ts
 不用手改 JSON，浏览器里可视化编辑配置：
 
 ```bash
-bun run build:admin   # 构建前端（Vite 产物到 admin/dist/，由网关静态托管）
-bun start             # 启动网关
+bun run build   # 构建并内联前端资源（Vite 产物 admin/dist/ → src/admin-assets.generated.ts → 打包进二进制）
+bun run model-gate.js   # 启动网关（或开发模式 bun run dev）
 ```
 
 打开浏览器：
@@ -57,8 +63,8 @@ bun start             # 启动网关
 - 可编辑：providers（base_url/api_key/模型列表 + 每个 provider 的"测试连接"按钮）、aliases（别名 → 有序 `provider:model`，顺序即 failover 顺序）、keys（下游密钥）、默认模型
 - port / host / timeout 等启动参数只读展示（修改需编辑 config.json 后重启）
 - **访问控制**：本机回环（127.0.0.1/::1）免登录直接进入；**非本机访问需密码登录**——在 config.json 顶层配置 `admin_password`（支持 `${ENV_VAR}` 插值，留空 = 未配置）；未配置时登录页会提示去实际配置文件设置。会话为内存态（24 小时过期，重启失效），登录页提供登出；连续 5 次密码错误锁定 60 秒
-- **安全**：密钥默认掩码显示（保留前 3 后 3），编辑时留空 = 保持原值；`admin_password` 不进界面编辑范围，只在配置文件改
-- 开发模式：`bun run dev:admin` 起 Vite dev server（端口 5173，代理 `/admin/api` 到网关），配合 `bun run dev` 热更新前端
+- **安全**：`api_key` 返回真实值，前端以密码框（type=password）遮挡显示，明文不外露；编辑时留空 = 保持原值（不清空原密钥），填新值即覆盖；`admin_password` 不进界面编辑范围，只在配置文件改
+- 开发模式：`bun run dev` 会并行起 Vite dev server（端口 5173，代理 `/admin/api` 到网关）和网关 api，前端改动热更新
 
 启动后服务监听在配置的 `host:port`（默认 `http://127.0.0.1:8787`）。
 
@@ -141,7 +147,7 @@ bun start             # 启动网关
 
 ```bash
 export DEEPSEEK_API_KEY=sk-xxxx
-bun start
+bun run dev          # 或 bun run model-gate.js（生产构建后）
 ```
 
 ### 配置热加载
@@ -328,7 +334,7 @@ model:    <config.json 里 aliases 的任意键>
 ## 开发
 
 ```bash
-bun test        # 单元测试（config 校验 / failover / SSE 改写 / 鉴权路由）
+bun test        # 单元测试（config 校验 / failover / SSE 改写 / 鉴权路由；默认忽略 admin/ 前端测试）
 bun run typecheck   # 见下
 ```
 
@@ -346,10 +352,12 @@ bun scripts/smoke.ts           # 端到端冒烟：health/models/鉴权/chat 转
 ├── src/
 │   ├── index.ts          # 入口：加载配置、热加载、Bun.serve
 │   ├── app.ts            # Hono 路由：鉴权、日志中间件、/v1/* 端点
+│   ├── admin.ts          # /admin 管理后端 API（配置读写、测试连接等）
 │   ├── config.ts         # 配置类型、校验、${ENV} 插值
 │   ├── providers.ts      # 上游调用：转发、SSE 改写、failover、超时
 │   ├── logger.ts         # 控制台摘要 + access.log
 │   └── *.test.ts         # 测试
+├── admin/                # Vue3 + Naive UI 管理前端（Vite 构建）
 ├── docs/adr/             # 架构决策记录
 └── CONTEXT.md            # 领域词汇表
 ```
@@ -357,7 +365,7 @@ bun scripts/smoke.ts           # 端到端冒烟：health/models/鉴权/chat 转
 类型检查（可选）：
 
 ```bash
-bunx tsc --noEmit
+bun run typecheck
 ```
 
 ## 限制与路线图
