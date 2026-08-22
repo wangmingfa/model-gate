@@ -74,14 +74,15 @@ const store = useConfigStore();
 </template>
 
 <style>
-/* ---- 密钥列表行：两行布局（名称+掩码 第一行，时间+操作 第二行）---- */
+/* ---- 密钥列表行：默认一行（名称+掩码 与 时间+操作 并排），移动端才折成两行 ---- */
 .key-add-row {
   flex-wrap: wrap;
 }
 .key-row {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
   border: 1px solid #eee;
   border-radius: 8px;
   padding: 8px 12px;
@@ -90,21 +91,30 @@ const store = useConfigStore();
   display: flex;
   align-items: center;
   gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .key-bottom {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex: 0 0 auto;
 }
 
-/* ---- 移动端适配：窄屏下仍保持两行，横向放不下时自动换行 ---- */
+/* ---- 移动端适配：窄屏下折成两行（名称+掩码 第一行，时间+操作 第二行）---- */
 @media (max-width: 600px) {
+  .key-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
   .key-top {
     flex-wrap: wrap;
     gap: 8px;
   }
   .key-bottom {
     flex-wrap: wrap;
+    justify-content: space-between;
     gap: 8px;
   }
   .key-add-row {
