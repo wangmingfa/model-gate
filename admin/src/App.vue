@@ -425,11 +425,15 @@ async function onSave(): Promise<void> {
             :key="k.name"
             class="key-row"
           >
-            <n-tag type="primary" size="small" style="width: 110px; justify-content: center" class="key-name">{{ k.name }}</n-tag>
-            <code style="color: #666; font-size: 12px; word-break: break-all" class="key-value">{{ maskKey(k.key) }}</code>
-            <span style="color: #999; font-size: 12px; white-space: nowrap">{{ formatTime(k.created_at) }}</span>
-            <n-button size="tiny" @click="copyKey(k.key)">复制</n-button>
-            <n-button size="tiny" type="error" quaternary @click="removeKey(i)">删除</n-button>
+            <div class="key-top">
+              <n-tag type="primary" size="small" style="width: 110px; justify-content: center" class="key-name">{{ k.name }}</n-tag>
+              <code style="color: #666; font-size: 12px; word-break: break-all" class="key-value">{{ maskKey(k.key) }}</code>
+            </div>
+            <div class="key-bottom">
+              <span style="color: #999; font-size: 12px; white-space: nowrap">{{ formatTime(k.created_at) }}</span>
+              <n-button size="tiny" @click="copyKey(k.key)">复制</n-button>
+              <n-button size="tiny" type="error" quaternary @click="removeKey(i)">删除</n-button>
+            </div>
           </div>
           <div v-if="keys.length === 0" style="color: #999; font-size: 12px">还没有密钥，填名称添加一个（密钥自动生成）</div>
         </n-space>
@@ -684,23 +688,37 @@ async function onSave(): Promise<void> {
   color: #d97706;
 }
 
-/* ---- 密钥列表行 ---- */
+/* ---- 密钥列表行：两行布局（名称+掩码 第一行，时间+操作 第二行）---- */
 .key-add-row {
   flex-wrap: wrap;
 }
 .key-row {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 6px;
   border: 1px solid #eee;
   border-radius: 8px;
   padding: 8px 12px;
-  flex-wrap: wrap;
+}
+.key-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.key-bottom {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-/* ---- 移动端适配：窄屏下把横排元素改为竖排，避免挤压成一列 ---- */
+/* ---- 移动端适配：窄屏下第二行操作元素竖排，避免挤压成一列 ---- */
 @media (max-width: 600px) {
-  .key-row {
+  .key-top {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  .key-bottom {
     flex-direction: column;
     align-items: flex-start;
     gap: 6px;
