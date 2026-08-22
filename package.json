@@ -11,7 +11,7 @@
     "dev": "bun run --parallel dev:api dev:ui",
     "dev:api": "MODEL_GATE_DEV=1 bun --watch src/index.ts",
     "dev:ui": "cd admin && bun run dev",
-    "embed": "cd admin && bun install && bun run build && cd .. && bun scripts/embed-assets.ts",
+    "embed": "bun install --cwd admin && bun run --cwd admin build && bun scripts/embed-assets.ts",
     "build": "bun run embed && bun build src/index.ts --target=bun --outfile model-gate.js",
     "test": "bun test --path-ignore-patterns=admin",
     "typecheck": "bun node_modules/typescript/bin/tsc --noEmit",
