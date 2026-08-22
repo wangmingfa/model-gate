@@ -284,3 +284,41 @@ describe('POST /admin/api/test', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('dev 模式（includeAdminStatic: false）', () => {
+  // 开发模式 app：托管 API，不托管 SPA 静态页（页面由 Vite 5173 提供）
+  const devApp = createApp(() => loadConfig(tmpPath), { configPath: tmpPath, includeAdminStatic: false });
+
+  async function devReq(path: string, init: RequestInit = {}, env: unknown = loopbackEnv): Promise<Response> {
+    return await devApp.request(
+      path.startsWith('/') ? path : `/admin${path}`,
+      { ...init, headers: { 'content-type': 'application/json', ...init.headers } },
+      env as never,
+    );
+  }
+
+  test('API 路由仍正常（auth-status）', async () => {
+    writeConfig(base);
+    const res = await devReq('/admin/api/auth-status');
+    expect(res.status).toBe(200);
+  });
+
+  test('不托管 SPA 静态页：/admin 返回 404 而非 HTML 200', async () => {
+    writeConfig(base);
+    const res = await devReq('/admin');
+    expect(res.status).toBe(404);
+  });
+
+  test('不托管静态资源：/admin/assets 返回 404', async () => {
+    writeConfig(base);
+    const res = await devReq('/admin/assets/index.js');
+    expect(res.status).toBe(404);
+  });
+
+  test('生产模式（默认）仍托管 SPA 静态页：/admin 返回 HTML 200', async () => {
+    writeConfig(base);
+    const res = await app.request('/admin', {}, loopbackEnv as never);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type') ?? '').toContain('text/html');
+  });
+});
