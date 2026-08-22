@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, h, markRaw, provide } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch, h, markRaw, provide } from 'vue';
 import { NIcon, NDropdown, NAlert, NButton } from 'naive-ui';
 import {
   LogOutOutline,
@@ -67,7 +67,29 @@ function onUserMenuSelect(key: string): void {
 }
 
 /** ---- 分版块导航：左侧切换，一次只看一个版块，缩短页面 ---- */
-const activeSection = ref('access');
+// hash 路由：刷新/分享链接可保留当前选中的版块（如 #providers）
+const SECTION_KEYS = ['access', 'basic', 'keys', 'providers', 'aliases'] as const;
+function sectionFromHash(): string {
+  const h = location.hash.replace(/^#/, '');
+  return (SECTION_KEYS as readonly string[]).includes(h) ? h : 'access';
+}
+const activeSection = ref(sectionFromHash());
+
+// 切换版块 → 写回 hash（replaceState 避免产生多余历史记录，且不触发页面滚动到 anchor）
+watch(activeSection, (key) => {
+  const newHash = `#${key}`;
+  if (location.hash !== newHash) {
+    history.replaceState(null, '', newHash);
+  }
+});
+// 用户手动改 hash / 浏览器前进后退 → 同步回 activeSection
+function onHashChange(): void {
+  const s = sectionFromHash();
+  if (s !== activeSection.value) activeSection.value = s;
+}
+onMounted(() => window.addEventListener('hashchange', onHashChange));
+onUnmounted(() => window.removeEventListener('hashchange', onHashChange));
+
 const sections = computed<SectionItem[]>(() => [
   { key: 'access', label: '接入信息', icon: markRaw(LinkOutline) },
   { key: 'basic', label: '基本设置', icon: markRaw(SettingsOutline) },
