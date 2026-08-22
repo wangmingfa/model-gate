@@ -77,13 +77,19 @@ const auth = useAuth();
 </template>
 
 <style>
-/* 全屏渐变背景 + 居中 */
+/* 全屏渐变背景 + 居中。
+   用 fixed + inset:0 让登录层精确等于视口尺寸，彻底避免任何 min-height
+   与外层 .app-bg 的 100vh 叠加导致的 body 纵向溢出滚动条；内容超高时
+   在本层内部滚动，而非撑出整页滚动条。 */
 .auth-screen {
-  min-height: 100vh;
+  position: fixed;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
+  box-sizing: border-box;
+  overflow: auto;
   background: linear-gradient(135deg, #eef2ff 0%, #faf0ff 45%, #fdf2f8 100%);
 }
 /* 居中面板：限制宽度，内容纵向排列 */
