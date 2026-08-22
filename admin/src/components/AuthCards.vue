@@ -62,7 +62,6 @@ const auth = useAuth();
               v-model:value="auth.password"
               type="password"
               size="large"
-              show-password-on="click"
               placeholder="请输入 admin_password"
               class="auth-input"
               @keyup.enter="auth.submit"
@@ -78,16 +77,18 @@ const auth = useAuth();
 
 <style>
 /* 全屏渐变背景 + 居中。
-   用 fixed + inset:0 让登录层精确等于视口尺寸，彻底避免任何 min-height
-   与外层 .app-bg 的 100vh 叠加导致的 body 纵向溢出滚动条；内容超高时
-   在本层内部滚动，而非撑出整页滚动条。 */
+   用 min-height:100dvh（而非 fixed）跟随动态视口，避免 fixed 在移动端
+   软键盘/地址栏伸缩时的整体抖动。关键：本层 padding:0，且登录态时父级
+   .page-wrap 的 padding 也被清零（见 App.vue .page-wrap--auth），否则
+   父级 24px*2 + 本层 padding 会让 100dvh 超出屏幕产生滚动条。
+   内容超高时本层内部滚动（overflow:auto）。 */
 .auth-screen {
-  position: fixed;
-  inset: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: 0;
   box-sizing: border-box;
   overflow: auto;
   background: linear-gradient(135deg, #eef2ff 0%, #faf0ff 45%, #fdf2f8 100%);

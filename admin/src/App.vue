@@ -109,7 +109,7 @@ async function onCheckConfig(): Promise<void> {
 </script>
 
 <template>
-  <div class="page-wrap">
+  <div :class="['page-wrap', (auth.state === 'need-password' || auth.state === 'need-login') && 'page-wrap--auth']">
     <!-- 未配密码 / 未登录：登录与引导卡片 -->
     <AuthCards v-if="auth.state === 'need-password' || auth.state === 'need-login'" />
 
@@ -222,6 +222,10 @@ async function onCheckConfig(): Promise<void> {
   margin: 0 auto;
   padding: 24px;
 }
+/* 登录态：清零外层 padding，避免与 .auth-screen 的 100dvh 叠加溢出屏幕 */
+.page-wrap--auth {
+  padding: 0;
+}
 
 /* 分版块布局：左侧导航 + 右侧内容 */
 .section-layout {
@@ -267,6 +271,10 @@ async function onCheckConfig(): Promise<void> {
   /* 充分利用空间：收窄页面边距与卡片间距 */
   .page-wrap {
     padding: 10px;
+  }
+  /* 登录态下外层 padding 始终保持 0，避免叠加 100dvh 溢出 */
+  .page-wrap--auth {
+    padding: 0;
   }
   .editor-content {
     padding-bottom: 12px;
