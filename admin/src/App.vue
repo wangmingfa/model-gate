@@ -2,7 +2,6 @@
 import { ref, onMounted, computed, h, markRaw, provide } from 'vue';
 import { NIcon, NDropdown, NAlert, NButton } from 'naive-ui';
 import {
-  RocketOutline,
   LogOutOutline,
   SettingsOutline,
   ServerOutline,
@@ -26,6 +25,29 @@ import AliasesSection from './components/sections/AliasesSection.vue';
 
 // 共享编辑态：创建一次，provide 给各版块子组件（message/dialog 在此绑定）
 const store = provideConfigStore();
+
+// 内联品牌 logo（拱门=网关，菱形节点=模型，输入汇聚→统一出口），避免打包器解析外部资源路径
+const logoSvg = `<svg viewBox="0 0 256 256" width="38" height="38" xmlns="http://www.w3.org/2000/svg" aria-label="model-gate logo">
+  <defs>
+    <linearGradient id="mg-g" x1="32" y1="32" x2="224" y2="224" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6366F1"/><stop offset="0.55" stop-color="#8B5CF6"/><stop offset="1" stop-color="#D946EF"/>
+    </linearGradient>
+    <linearGradient id="mg-g2" x1="64" y1="64" x2="192" y2="192" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#A5B4FC"/><stop offset="1" stop-color="#E879F9"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="224" height="224" rx="56" fill="url(#mg-g)"/>
+  <g stroke="#ffffff" stroke-width="14" stroke-linecap="round" fill="none" opacity="0.95">
+    <path d="M78 184 L78 96 Q78 70 104 70 L152 70 Q178 70 178 96 L178 184"/>
+  </g>
+  <g fill="#ffffff">
+    <path d="M70 104 L120 118" stroke="#ffffff" stroke-width="9" stroke-linecap="round" opacity="0.9"/>
+    <path d="M186 104 L136 118" stroke="#ffffff" stroke-width="9" stroke-linecap="round" opacity="0.9"/>
+    <path d="M128 92 L156 124 L128 156 L100 124 Z" fill="url(#mg-g2)"/>
+    <circle cx="128" cy="124" r="9" fill="#ffffff"/>
+  </g>
+  <path d="M128 156 L128 192" stroke="#ffffff" stroke-width="11" stroke-linecap="round" opacity="0.9"/>
+</svg>`;
 
 // 登录态：登录成功后拉取配置进入编辑态
 const auth = createAuth(store.load);
@@ -74,7 +96,7 @@ async function onCheckConfig(): Promise<void> {
       <div class="editor-content">
       <div class="hero-header">
         <div class="hero-left">
-          <div class="hero-logo"><n-icon :size="26"><RocketOutline /></n-icon></div>
+          <div class="hero-logo" v-html="logoSvg"></div>
           <div>
             <h2 style="margin: 0">model-gate 配置</h2>
             <p style="margin: 2px 0 0; font-size: 12px; opacity: 0.85">
@@ -155,6 +177,9 @@ async function onCheckConfig(): Promise<void> {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+}
+.hero-logo svg {
+  display: block;
 }
 
 /* 卡片标题带图标 */

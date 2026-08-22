@@ -1,0 +1,34 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="model-gate logo">
+  <defs>
+    <linearGradient id="mg-g" x1="32" y1="32" x2="224" y2="224" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6366F1"/>
+      <stop offset="0.55" stop-color="#8B5CF6"/>
+      <stop offset="1" stop-color="#D946EF"/>
+    </linearGradient>
+    <linearGradient id="mg-g2" x1="64" y1="64" x2="192" y2="192" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#A5B4FC"/>
+      <stop offset="1" stop-color="#E879F9"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 圆角底板 -->
+  <rect x="16" y="16" width="224" height="224" rx="56" fill="url(#mg-g)"/>
+
+  <!-- 网关拱门：两侧立柱 + 顶部横梁，象征 gate -->
+  <g stroke="white" stroke-width="14" stroke-linecap="round" fill="none" opacity="0.95">
+    <path d="M78 184 L78 96 Q78 70 104 70 L152 70 Q178 70 178 96 L178 184"/>
+  </g>
+
+  <!-- 门内的模型节点：一个菱形代表模型/节点，左右两条输入连线代表多上游汇聚 -->
+  <g fill="white">
+    <!-- 输入连线 -->
+    <path d="M70 104 L120 118" stroke="white" stroke-width="9" stroke-linecap="round" opacity="0.9"/>
+    <path d="M186 104 L136 118" stroke="white" stroke-width="9" stroke-linecap="round" opacity="0.9"/>
+    <!-- 中心模型节点（菱形 + 内核） -->
+    <path d="M128 92 L156 124 L128 156 L100 124 Z" fill="url(#mg-g2)"/>
+    <circle cx="128" cy="124" r="9" fill="white"/>
+  </g>
+
+  <!-- 出口：下方统一通道，象征 OpenAI 兼容出口 -->
+  <path d="M128 156 L128 192" stroke="white" stroke-width="11" stroke-linecap="round" opacity="0.9"/>
+</svg>
