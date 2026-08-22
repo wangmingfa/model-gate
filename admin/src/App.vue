@@ -506,13 +506,13 @@ async function onSave(): Promise<void> {
                 <div style="display: flex; justify-content: flex-end; align-items: center">
                   <n-button size="small" type="error" quaternary @click="providers.splice(i, 1)">删除</n-button>
                 </div>
-                <div style="display: flex; align-items: baseline; gap: 12px">
+                <div style="display: flex; align-items: baseline; gap: 12px" class="provider-name-row">
                   <div style="width: 160px; flex-shrink: 0">
                     <n-form-item label="名称" style="margin-bottom: 0">
                       <n-input v-model:value="p.name" placeholder="如 deepseek" />
                     </n-form-item>
                   </div>
-                  <div style="flex: 1; min-width: 0">
+                  <div style="flex: 1; min-width: 0" class="provider-base-url">
                     <n-form-item label="base_url" style="margin-bottom: 0">
                       <n-input
                         v-model:value="p.base_url"
@@ -739,6 +739,15 @@ async function onSave(): Promise<void> {
     flex-direction: column;
     align-items: flex-start;
     padding: 16px;
+  }
+  /* provider 编辑区：移动端名称和 base_url 竖排，base_url 独占一行 */
+  .provider-name-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .provider-name-row > div {
+    width: 100% !important;
   }
 }
 </style>
