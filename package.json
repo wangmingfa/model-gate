@@ -15,6 +15,7 @@
     "build": "bun run embed && bun build src/index.ts --target=bun --outfile model-gate.js",
     "test": "bun test --path-ignore-patterns=admin",
     "typecheck": "bun node_modules/typescript/bin/tsc --noEmit",
+    "kill-dev": "bun scripts/kill-dev.mjs",
     "postinstall": "bun install --cwd admin"
   },
   "dependencies": {
