@@ -37,15 +37,16 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('provider 折叠（n-collapse）', () => {
+describe('provider / alias 折叠（n-collapse）', () => {
   test('默认全部展开，点击头部可折叠/再展开', async () => {
     const wrapper = mountApp();
     await wrapper.vm.$nextTick();
     await new Promise((r) => setTimeout(r, 10));
     await wrapper.vm.$nextTick();
 
+    // 2 个 provider + 1 个 alias 都用了折叠面板
     const items = wrapper.findAll('.n-collapse-item');
-    expect(items.length).toBe(2);
+    expect(items.length).toBe(3);
     // 默认全部展开：都有 --active 状态类
     expect(items.every((it) => it.classes().includes('n-collapse-item--active'))).toBe(true);
 

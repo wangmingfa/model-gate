@@ -109,6 +109,8 @@ interface ProviderRow {
   models: string[];
 }
 interface AliasRow {
+  /** 行级稳定 ID（本地生成，与 name 无关）：折叠面板 name 与 v-for key，防改名失焦 */
+  _id: string;
   name: string;
   targets: string[];
 }
@@ -172,11 +174,12 @@ const testStates = ref<Record<string, { testing: boolean; result: string; ok: bo
 
 // 已折叠的 provider 行 ID 集合（默认全部展开；用稳定 _id 驱动，改名/删除/重排都不错乱）
 const collapsedProviders = ref(new Set<string>());
+const collapsedAliases = ref(new Set<string>());
 
-// 行级 ID 生成器（仅前端追踪用，不进配置草稿）
-let providerRowSeq = 0;
-function nextProviderRowId(): string {
-  return `row-${++providerRowSeq}`;
+// 行级 ID 生成器（仅前端追踪用，不进配置草稿；provider/alias 共用一个序列即可）
+let rowSeq = 0;
+function nextRowId(): string {
+  return `row-${++rowSeq}`;
 }
 
 const expandedProviderNames = computed<string[]>({
@@ -184,6 +187,14 @@ const expandedProviderNames = computed<string[]>({
   set: (names) => {
     const expanded = new Set(names);
     collapsedProviders.value = new Set(providers.value.map((p) => p._id).filter((id) => !expanded.has(id)));
+  },
+});
+
+const expandedAliasNames = computed<string[]>({
+  get: () => aliases.value.map((a) => a._id).filter((id) => !collapsedAliases.value.has(id)),
+  set: (names) => {
+    const expanded = new Set(names);
+    collapsedAliases.value = new Set(aliases.value.map((a) => a._id).filter((id) => !expanded.has(id)));
   },
 });
 
@@ -201,13 +212,13 @@ async function load(): Promise<void> {
     defaultModel.value = cfg.default_model;
     keys.value = [...cfg.keys];
     providers.value = Object.entries(cfg.providers).map(([name, p]) => ({
-      _id: nextProviderRowId(),
+      _id: nextRowId(),
       name,
       base_url: p.base_url,
       api_key: '', // 不回填掩码：失焦保存时会把掩码串当真实密钥写回，破坏原密钥；空 = 保持原值
       models: [...p.models],
     }));
-    aliases.value = Object.entries(cfg.aliases).map(([name, targets]) => ({ name, targets: [...targets] }));
+    aliases.value = Object.entries(cfg.aliases).map(([name, targets]) => ({ _id: nextRowId(), name, targets: [...targets] }));
   } catch (e) {
     loadError.value = (e as Error).message;
   } finally {
@@ -218,10 +229,10 @@ async function load(): Promise<void> {
 onMounted(checkAuth);
 
 function addProvider(): void {
-  providers.value.push({ _id: nextProviderRowId(), name: '', base_url: '', api_key: '', models: [] });
+  providers.value.push({ _id: nextRowId(), name: '', base_url: '', api_key: '', models: [] });
 }
 function addAlias(): void {
-  aliases.value.push({ name: '', targets: [] });
+  aliases.value.push({ _id: nextRowId(), name: '', targets: [] });
 }
 
 /** 添加密钥：填名称 → 自动生成 sk- + 32 位随机十六进制密钥 */
@@ -430,7 +441,7 @@ function scheduleAutoSave(opts?: { silent?: boolean; successMsg?: string }): voi
 </script>
 
 <template>
-  <div style="max-width: 900px; margin: 0 auto; padding: 24px">
+  <div class="page-wrap">
     <!-- 未配密码：提示去配置文件配置 admin_password -->
     <n-card v-if="authState === 'need-password'" title="需要配置密码" style="max-width: 480px; margin: 80px auto" class="auth-card">
       <div class="auth-icon warn"><n-icon :size="30"><AlertCircleOutline /></n-icon></div>
@@ -717,25 +728,40 @@ function scheduleAutoSave(opts?: { silent?: boolean; successMsg?: string }): voi
           <span class="card-title"><n-icon :size="16"><GitBranchOutline /></n-icon> 模型别名（aliases，agent 只认别名）</span>
         </template>
         <n-space vertical>
-          <div v-for="(a, i) in aliases" :key="i" :class="{ 'field-error': erroredAliases.has(a.name) }" style="border: 1px solid #eee; border-radius: 8px; padding: 12px">
-            <n-space justify="space-between" align="center">
-              <span style="font-weight: 600">alias #{{ i + 1 }}</span>
-              <n-button size="small" type="error" quaternary @click="removeAlias(i)">删除</n-button>
-            </n-space>
-            <n-space>
-              <n-form-item label="别名" style="margin-bottom: 0">
-                <n-input v-model:value="a.name" placeholder="如 fast" style="width: 160px" @blur="autoSave()" />
-              </n-form-item>
-            </n-space>
-            <n-form-item label="目标（有序，failover 顺序，每行一个 provider:model）">
-              <n-dynamic-input
-                v-model:value="a.targets"
-                placeholder="如 deepseek:deepseek-chat"
-                style="width: 100%"
-                @update:value="scheduleAutoSave()"
-              />
-            </n-form-item>
-          </div>
+          <n-collapse v-model:expanded-names="expandedAliasNames">
+            <n-collapse-item
+              v-for="(a, i) in aliases"
+              :key="a._id"
+              :name="a._id"
+              arrow-placement="left"
+            >
+              <template #header>
+                <span style="font-weight: 600">
+                  alias #{{ i + 1 }}
+                  <span v-if="a.name" style="font-weight: 400; color: #666">（{{ a.name }}）</span>
+                </span>
+              </template>
+              <div
+                :class="{ 'field-error': erroredAliases.has(a.name) }"
+                style="border: 1px solid #eee; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px"
+              >
+                <div style="display: flex; justify-content: flex-end; align-items: center">
+                  <n-button size="small" type="error" quaternary @click="removeAlias(i)">删除</n-button>
+                </div>
+                <n-form-item label="别名" style="margin-bottom: 0">
+                  <n-input v-model:value="a.name" placeholder="如 fast" style="width: 160px" @blur="autoSave()" />
+                </n-form-item>
+                <n-form-item label="目标（有序，failover 顺序，每行一个 provider:model）" style="margin-bottom: 0">
+                  <n-dynamic-input
+                    v-model:value="a.targets"
+                    placeholder="如 deepseek:deepseek-chat"
+                    style="width: 100%"
+                    @update:value="scheduleAutoSave()"
+                  />
+                </n-form-item>
+              </div>
+            </n-collapse-item>
+          </n-collapse>
           <n-button size="small" @click="addAlias">+ 添加别名</n-button>
         </n-space>
       </n-card>
@@ -786,6 +812,13 @@ function scheduleAutoSave(opts?: { silent?: boolean; successMsg?: string }): voi
 /* 编辑区容器：底部留白 */
 .editor-content {
   padding-bottom: 24px;
+}
+
+/* 页面外层容器：桌面 24px 边距，移动端收窄（见媒体查询） */
+.page-wrap {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px;
 }
 
 /* 体检出错的字段：红色边框 + 柔和红光，直观定位问题处 */
@@ -920,6 +953,28 @@ function scheduleAutoSave(opts?: { silent?: boolean; successMsg?: string }): voi
 
 /* ---- 移动端适配：窄屏下仍保持两行，横向放不下时自动换行，不强制竖排成一列 ---- */
 @media (max-width: 600px) {
+  /* 充分利用空间：收窄页面边距与卡片间距 */
+  .page-wrap {
+    padding: 10px;
+  }
+  .editor-content {
+    padding-bottom: 12px;
+  }
+  /* 卡片间距 16px -> 10px（需 !important 压过各卡片上的 inline margin-bottom） */
+  .soft-card {
+    margin-bottom: 10px !important;
+  }
+  .hero-header {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+    border-radius: 10px;
+  }
+  .check-result {
+    margin-bottom: 10px;
+    padding: 10px 12px;
+  }
   .key-top {
     flex-wrap: wrap;
     gap: 8px;
@@ -941,11 +996,6 @@ function scheduleAutoSave(opts?: { silent?: boolean; successMsg?: string }): voi
   }
   .key-value {
     word-break: break-all;
-  }
-  .hero-header {
-    flex-direction: column;
-    align-items: flex-start;
-    padding: 16px;
   }
   /* provider 编辑区：移动端名称和 base_url 竖排，base_url 独占一行 */
   .provider-name-row {
