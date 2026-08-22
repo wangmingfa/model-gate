@@ -108,7 +108,7 @@ export function validateConfig(raw: unknown, path = '<config>', mode: 'strict' |
   const access_log = r.access_log !== false; // 默认开启
 
   const keysRaw: unknown[] = Array.isArray(r.keys) ? r.keys : []; // TS 5.9 对 Record 索引的 Array.isArray 收窄不可靠
-  if (mode === 'strict' && keysRaw.length === 0) fail('keys 必须是非空数组（下游鉴权密钥）');
+  // keys 允许为空（分步配置场景：用户可能先填 providers/aliases，稍后再加 key；空时 /v1 返回 503 引导去配置）
   const keys: ClientKey[] = [];
   for (const item of keysRaw) {
     if (typeof item !== 'object' || item === null) fail('keys 的每一项必须是对象 { name, key, created_at }');
@@ -187,11 +187,9 @@ export function validateConfig(raw: unknown, path = '<config>', mode: 'strict' |
     aliases[name] = targets;
   }
 
-  if (mode === 'strict' && Object.keys(aliases).length === 0) fail('aliases 至少要定义一个别名');
-
   const default_model = typeof r.default_model === 'string' ? r.default_model : (Object.keys(aliases)[0] ?? '');
-  // boot 模式（首跑空配置）下允许不定义 default_model
-  if ((mode === 'strict' || Object.keys(aliases).length > 0) && !aliases[default_model]) {
+  // 当 aliases 为空（未配置别名）时，default_model 可留空或指向任意值，无需校验
+  if (Object.keys(aliases).length > 0 && !aliases[default_model]) {
     fail(`default_model "${default_model}" 不是已定义的别名（可用: ${Object.keys(aliases).join(', ')}）`);
   }
 

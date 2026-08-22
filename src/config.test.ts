@@ -52,8 +52,8 @@ describe('validateConfig', () => {
     expect(cfg.default_model).toBe('a');
   });
 
-  test('keys 为空抛错', () => {
-    expect(() => validateConfig({ ...base, keys: [] })).toThrow(ConfigError);
+  test('keys 为空不抛错（允许分步配置）', () => {
+    expect(() => validateConfig({ ...base, keys: [] })).not.toThrow();
   });
 
   test('alias 引用不存在 provider 抛错', () => {
