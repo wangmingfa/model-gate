@@ -711,17 +711,15 @@ async function onSave(): Promise<void> {
   gap: 10px;
 }
 
-/* ---- 移动端适配：窄屏下第二行操作元素竖排，避免挤压成一列 ---- */
+/* ---- 移动端适配：窄屏下仍保持两行，横向放不下时自动换行，不强制竖排成一列 ---- */
 @media (max-width: 600px) {
   .key-top {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
+    flex-wrap: wrap;
+    gap: 8px;
   }
   .key-bottom {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
+    flex-wrap: wrap;
+    gap: 8px;
   }
   .key-add-row {
     flex-direction: column;
