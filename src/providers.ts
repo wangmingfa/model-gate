@@ -94,6 +94,14 @@ export function wrapSSEStream(
   const usageBox: UsageBox = { usage: null };
   let lastActivity = Date.now();
   let timer: ReturnType<typeof setInterval> | null = null;
+  // controller 只能被 error/close 终止一次；空闲超时已 error 后若再 close 会抛 TypeError。
+  // 用 terminated 守卫保证 error/close 至多执行一次，避免重复终止引发的异常。
+  let terminated = false;
+  const end = (fn: () => void) => {
+    if (terminated) return;
+    terminated = true;
+    fn();
+  };
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -101,7 +109,7 @@ export function wrapSSEStream(
         if (Date.now() - lastActivity > idleMs) {
           clearInterval(timer!);
           reader.cancel().catch(() => {});
-          controller.error(new Error(`upstream 流式空闲超时（${idleMs}ms 无数据）`));
+          end(() => controller.error(new Error(`upstream 流式空闲超时（${idleMs}ms 无数据）`)));
         }
       }, 1000);
 
@@ -123,9 +131,9 @@ export function wrapSSEStream(
         if (lineBuf.length > 0) {
           controller.enqueue(encoder.encode(rewriteSSELine(lineBuf, alias, usageBox)));
         }
-        controller.close();
+        end(() => controller.close());
       } catch (e) {
-        controller.error(e);
+        end(() => controller.error(e));
       } finally {
         if (timer) clearInterval(timer);
       }
