@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NDynamicInput, NTag, NIcon } from 'naive-ui';
+import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NDynamicInput, NTag, NIcon, NTooltip } from 'naive-ui';
 import { ServerOutline, SaveOutline } from '@vicons/ionicons5';
 import { useConfigStore, type ProviderRow } from '../../configStore';
 
@@ -47,7 +47,7 @@ async function onSave(): Promise<void> {
   // 写回 store（深拷贝，避免草稿与 store 共享引用）
   store.providers = JSON.parse(JSON.stringify(draft.value));
   await store.saveSection({ successMsg: '上游运营商已保存' });
-  // 保存后同步草稿（失败 load 已回滚 store，草稿以 store 为准）
+  // 同步草稿：失败也不丢内容——saveSection 不再 load 回滚，store.providers 仍是刚写入的草稿拷贝
   draft.value = JSON.parse(JSON.stringify(store.providers));
 }
 </script>
@@ -67,20 +67,33 @@ async function onSave(): Promise<void> {
             </span>
           </template>
           <div
-            :class="{ 'field-error': store.erroredProviders.has(p.name) }"
+            :class="{ 'provider-item': true, 'field-error': store.erroredProviders.has(p.name) }"
             style="
+              position: relative;
               border: 1px solid #eee;
               border-radius: 8px;
-              padding: 12px;
+              padding: 12px 40px 12px 12px;
               margin-bottom: 8px;
               display: flex;
               flex-direction: column;
               gap: 8px;
             "
           >
-            <div style="display: flex; justify-content: flex-end; align-items: center">
-              <n-button size="small" type="error" quaternary @click="removeProvider(i)">删除</n-button>
-            </div>
+            <n-tooltip trigger="hover">
+              <template #trigger>
+                <n-button
+                  size="tiny"
+                  type="error"
+                  quaternary
+                  circle
+                  class="float-del-btn"
+                  @click="removeProvider(i)"
+                >
+                  ✕
+                </n-button>
+              </template>
+              删除该运营商
+            </n-tooltip>
             <div style="display: flex; align-items: baseline; gap: 12px" class="provider-name-row">
               <div style="width: 160px; flex-shrink: 0">
                 <n-form-item label="名称" style="margin-bottom: 0">
@@ -122,7 +135,11 @@ async function onSave(): Promise<void> {
               </n-tag>
             </div>
             <n-form-item label="模型列表" style="margin-bottom: 0">
-              <n-dynamic-input v-model:value="p.models" placeholder="模型 id，如 deepseek-chat" style="width: 100%" />
+              <n-dynamic-input v-model:value="p.models" placeholder="模型 id，如 deepseek-chat" style="width: 100%">
+                <template #create-button-default>
+                  添加模型
+                </template>
+              </n-dynamic-input>
             </n-form-item>
           </div>
         </n-collapse-item>
@@ -139,6 +156,13 @@ async function onSave(): Promise<void> {
 </template>
 
 <style>
+/* 删除按钮浮动在运营商卡片右上角，不占用布局空间 */
+.provider-item .float-del-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+}
 @media (max-width: 600px) {
   /* provider 编辑区：移动端名称和 base_url 竖排，base_url 独占一行 */
   .provider-name-row {

@@ -249,7 +249,9 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
     };
   }
 
-  /** 任意字段变更后自动保存（失焦/变更触发）；成功即落盘，失败才回滚本地编辑 */
+  /** 任意字段变更后自动保存（失焦/变更触发）；成功即落盘，失败仅报错、保留本地编辑
+   *  （不 load() 回滚：后端是原子写，校验失败不会改动磁盘，服务端仍是旧值；
+   *   若回滚会用旧值覆盖用户正在编辑的内容，导致白改。让用户改完错误再保存即可） */
   async function autoSave(opts?: { silent?: boolean; successMsg?: string }): Promise<void> {
     saving.value = true;
     try {
@@ -258,7 +260,7 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
       checkIssues.value = null; // 配置已变动，上一轮体检结果作废（重新检查才更新标红）
       // 成功不重新拉取：避免覆盖用户正在进行的其他编辑（连续输入/多字段同时改）
     } catch (e) {
-      await load(); // 失败则拉取服务端真实状态，回滚本地编辑
+      // 失败不回滚本地编辑（保留用户当前屏幕内容）；仅展示错误
       if (!opts?.silent) message.error(`保存失败：${(e as Error).message}`);
     } finally {
       saving.value = false;
@@ -276,7 +278,8 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
   }
 
   /** 版块显式保存：由各版块「保存」按钮调用。由调用方先把本地草稿写回 store 再调用，
-   *  这里统一走 buildDraft + saveConfig；失败则 load 回滚。 */
+   *  这里统一走 buildDraft + saveConfig；失败仅报错、不回滚（保留本地编辑，让用户改完再存）。
+   *  调用方在失败时也不应再用 store 覆盖自己的草稿。 */
   async function saveSection(opts?: { successMsg?: string }): Promise<void> {
     saving.value = true;
     try {
@@ -284,7 +287,8 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
       if (opts?.successMsg) message.success(opts.successMsg);
       checkIssues.value = null; // 配置已变动，上一轮体检结果作废（重新检查才更新标红）
     } catch (e) {
-      await load(); // 失败则拉取服务端真实状态，回滚本地编辑
+      // 失败不 load() 回滚：后端原子写，校验失败不动磁盘，服务端仍是旧值；
+      // 回滚会用旧值覆盖用户编辑内容。仅展示错误，保留当前屏幕内容。
       message.error(`保存失败：${(e as Error).message}`);
     } finally {
       saving.value = false;

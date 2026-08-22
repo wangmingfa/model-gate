@@ -1,10 +1,23 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
-import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NDynamicInput, NIcon } from 'naive-ui';
+import { ref, watch, computed } from 'vue';
+import type { CascaderOption } from 'naive-ui';
+import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NCascader, NIcon, NTooltip } from 'naive-ui';
 import { GitBranchOutline, SaveOutline } from '@vicons/ionicons5';
 import { useConfigStore, type AliasRow } from '../../configStore';
 
 const store = useConfigStore();
+
+// 级联选择框选项：第一层 provider，第二层 model；value 用 "provider:model" 与 targets 格式一致
+const providerCascaderOptions = computed<CascaderOption[]>(() => {
+  const list = store.providers.length ? store.providers : draft.value;
+  return list
+    .filter((p) => p.name && p.models.length)
+    .map((p) => ({
+      label: p.name,
+      value: p.name,
+      children: p.models.filter(Boolean).map((m) => ({ label: m, value: `${p.name}:${m}` })),
+    }));
+});
 
 // 本地草稿：深拷贝，编辑不实时落盘；点「保存」才写回 store 并落盘
 const draft = ref<AliasRow[]>(JSON.parse(JSON.stringify(store.aliases)));
@@ -43,8 +56,10 @@ function removeAlias(index: number): void {
 }
 
 async function onSave(): Promise<void> {
+  // 写回 store（深拷贝，避免草稿与 store 共享引用）
   store.aliases = JSON.parse(JSON.stringify(draft.value));
   await store.saveSection({ successMsg: '模型别名已保存' });
+  // 同步草稿：失败也不丢内容——saveSection 不再 load 回滚，store.aliases 仍是刚写入的草稿拷贝
   draft.value = JSON.parse(JSON.stringify(store.aliases));
 }
 </script>
@@ -64,19 +79,35 @@ async function onSave(): Promise<void> {
             </span>
           </template>
           <div
-            :class="{ 'field-error': store.erroredAliases.has(a.name) }"
-            style="border: 1px solid #eee; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px"
+            :class="{ 'alias-item': true, 'field-error': store.erroredAliases.has(a.name) }"
+            style="position: relative; border: 1px solid #eee; border-radius: 8px; padding: 12px 40px 12px 12px; display: flex; flex-direction: column; gap: 8px"
           >
-            <div style="display: flex; justify-content: flex-end; align-items: center">
-              <n-button size="small" type="error" quaternary @click="removeAlias(i)">删除</n-button>
-            </div>
+            <n-tooltip trigger="hover">
+              <template #trigger>
+                <n-button
+                  size="tiny"
+                  type="error"
+                  quaternary
+                  circle
+                  class="float-del-btn"
+                  @click="removeAlias(i)"
+                >
+                  ✕
+                </n-button>
+              </template>
+              删除该别名
+            </n-tooltip>
             <n-form-item label="别名" style="margin-bottom: 0">
               <n-input v-model:value="a.name" placeholder="如 fast" style="width: 160px" />
             </n-form-item>
-            <n-form-item label="目标（有序，failover 顺序，每行一个 provider:model）" style="margin-bottom: 0">
-              <n-dynamic-input
+            <n-form-item label="目标（有序，failover 顺序，先选提供商再选模型）" style="margin-bottom: 0">
+              <n-cascader
                 v-model:value="a.targets"
-                placeholder="如 deepseek:deepseek-chat"
+                :options="providerCascaderOptions"
+                multiple
+                checkable
+                cascade
+                placeholder="先选提供商，再选模型"
                 style="width: 100%"
               />
             </n-form-item>
@@ -93,3 +124,13 @@ async function onSave(): Promise<void> {
     </n-space>
   </n-card>
 </template>
+
+<style>
+/* 删除按钮浮动在别名卡片右上角，不占用布局空间 */
+.alias-item .float-del-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+}
+</style>
