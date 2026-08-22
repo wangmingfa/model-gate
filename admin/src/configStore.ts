@@ -111,10 +111,17 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
         _id: nextRowId(),
         name,
         base_url: p.base_url,
-        api_key: '', // 不回填掩码：失焦保存时会把掩码串当真实密钥写回，破坏原密钥；空 = 保持原值
+        // 直接回填真实 api_key：输入框是 password 类型，明文被遮挡不可见；
+        // 清空框保存时后端 resolveApiKey 仍按「保持原值」处理（不会误删），填新值则覆盖。
+        api_key: p.api_key,
         models: [...p.models],
       }));
-      aliases.value = Object.entries(cfg.aliases).map(([name, targets]) => ({ _id: nextRowId(), name, targets: [...targets] }));
+      // 服务端 aliases 的 value 是单个 "provider:model" 字符串（兼容个别历史数组写法）
+      aliases.value = Object.entries(cfg.aliases).map(([name, targets]) => ({
+        _id: nextRowId(),
+        name,
+        targets: Array.isArray(targets) ? [...targets] : [targets],
+      }));
     } catch (e) {
       loadError.value = (e as Error).message;
     } finally {
@@ -242,6 +249,8 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
     const aliasMap: ConfigDraft['aliases'] = {};
     for (const a of aliases.value) {
       if (!a.name) throw new Error('别名名称不能为空');
+      // 服务端 aliases 的 value 是 "provider:model" 字符串数组（顺序即 failover 顺序）；
+      // 单选级联器当前只选一个，但保留数组结构以兼容多目标 failover。
       aliasMap[a.name] = a.targets;
     }
     return {

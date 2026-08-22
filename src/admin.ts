@@ -246,11 +246,13 @@ export function createAdminApp(
   admin.get('/api/config', (c) => {
     const cfg = getConfig();
     const { admin_password, ...rest } = cfg; // admin_password 不进编辑范围
+    // 注意：api_key 返回真实值（前端为 password 输入框，明文不可见）；
+    // 真实密钥会经网络传至浏览器，若在意泄露可改回 maskKey。PUT 时前端原样回传即原样保存。
     return c.json({
       ...rest,
       keys: cfg.keys,
       providers: Object.fromEntries(
-        Object.entries(cfg.providers).map(([name, p]) => [name, { ...p, api_key: maskKey(p.api_key) }]),
+        Object.entries(cfg.providers).map(([name, p]) => [name, { ...p, api_key: p.api_key }]),
       ),
     });
   });

@@ -7,7 +7,8 @@ import { useConfigStore, type AliasRow } from '../../configStore';
 
 const store = useConfigStore();
 
-// 级联选择框选项：第一层 provider，第二层 model；value 用 "provider:model" 与 targets 格式一致
+// 级联选择框选项：第一层 provider（展开容器），第二层 model 为可选叶子；
+// 单选模式，value 用 "provider:model" 与 targets 格式一致
 const providerCascaderOptions = computed<CascaderOption[]>(() => {
   const list = store.providers.length ? store.providers : draft.value;
   return list
@@ -36,6 +37,14 @@ function addAlias(): void {
   expandedNames.value.push(id); // 新行默认展开
 }
 
+// 单选级联器桥接：组件返回单个 "provider:model" 字符串，转换进 targets 数组（后端要求 string[]）
+function targetValue(a: AliasRow): string | null {
+  return a.targets.length ? a.targets[0] : null;
+}
+function onTargetChange(a: AliasRow, val: string | null): void {
+  a.targets = val ? [val] : [];
+}
+
 // 同 ProvidersSection：load() 异步填充后首次同步草稿
 watch(
   () => store.aliases,
@@ -56,8 +65,13 @@ function removeAlias(index: number): void {
 }
 
 async function onSave(): Promise<void> {
+  // 清洗：丢弃非 "provider:model" 格式的脏目标值（如旧版多选残留的纯 provider 名）
+  const cleaned = draft.value.map((a) => ({
+    ...a,
+    targets: a.targets.filter((t) => /^[^:]+:.+$/.test(t)),
+  }));
   // 写回 store（深拷贝，避免草稿与 store 共享引用）
-  store.aliases = JSON.parse(JSON.stringify(draft.value));
+  store.aliases = JSON.parse(JSON.stringify(cleaned));
   await store.saveSection({ successMsg: '模型别名已保存' });
   // 同步草稿：失败也不丢内容——saveSection 不再 load 回滚，store.aliases 仍是刚写入的草稿拷贝
   draft.value = JSON.parse(JSON.stringify(store.aliases));
@@ -102,13 +116,11 @@ async function onSave(): Promise<void> {
             </n-form-item>
             <n-form-item label="目标（有序，failover 顺序，先选提供商再选模型）" style="margin-bottom: 0">
               <n-cascader
-                v-model:value="a.targets"
+                :value="targetValue(a)"
                 :options="providerCascaderOptions"
-                multiple
-                checkable
-                cascade
                 placeholder="先选提供商，再选模型"
                 style="width: 100%"
+                @update:value="(val: string | null) => onTargetChange(a, val)"
               />
             </n-form-item>
           </div>

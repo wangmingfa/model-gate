@@ -108,12 +108,12 @@ async function onSave(): Promise<void> {
             </div>
             <div style="display: flex; align-items: center; gap: 12px">
               <div style="flex: 1; min-width: 0">
-                <n-form-item label="api_key（留空保持原值）" style="margin-bottom: 0">
+                <n-form-item label="api_key（留空保持原值，填新值覆盖）" style="margin-bottom: 0">
                   <n-input
                     v-model:value="p.api_key"
                     type="password"
                     show-password-on="click"
-                    placeholder="留空保持原值"
+                    placeholder="留空保持原值，填新值覆盖"
                     style="width: 100%"
                   />
                 </n-form-item>
