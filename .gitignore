@@ -6,3 +6,6 @@ model-gate.js
 
 # 构建生成：embed 脚本把 admin/dist 内联进 src，由 bun run build 自动生成
 src/admin-assets.generated.ts
+
+# WorkBuddy 本地工作目录（记忆/自动化/技能缓存），非项目源码
+.workbuddy/
