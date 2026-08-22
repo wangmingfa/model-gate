@@ -1,22 +1,30 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
-import type { CascaderOption } from 'naive-ui';
-import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NCascader, NIcon, NTooltip } from 'naive-ui';
+import type { SelectOption, SelectGroupOption } from 'naive-ui';
+import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NSelect, NIcon, NTooltip } from 'naive-ui';
 import { GitBranchOutline, SaveOutline } from '@vicons/ionicons5';
 import { useConfigStore, type AliasRow } from '../../configStore';
 
 const store = useConfigStore();
 
-// 级联选择框选项：第一层 provider（展开容器），第二层 model 为可选叶子；
-// 单选模式，value 用 "provider:model" 与 targets 格式一致
-const providerCascaderOptions = computed<CascaderOption[]>(() => {
+// 分组下拉选项：每个提供商是 type:'group' 分组标题，children 为该提供商的模型；
+// 模型 value 用 "provider:model" 与 targets 格式一致，选中直接得到该字符串；
+// 额外挂 provider/model 字段供 render-tag 拼出 "提供商 / 模型"
+interface ModelOption extends SelectOption {
+  provider?: string;
+  model?: string;
+}
+const providerSelectOptions = computed<(SelectOption | SelectGroupOption)[]>(() => {
   const list = store.providers.length ? store.providers : draft.value;
   return list
     .filter((p) => p.name && p.models.length)
     .map((p) => ({
+      type: 'group' as const,
       label: p.name,
-      value: p.name,
-      children: p.models.filter(Boolean).map((m) => ({ label: m, value: `${p.name}:${m}` })),
+      children: p.models.filter(Boolean).map((m) => ({
+        label: `${p.name}:${m}`,
+        value: `${p.name}:${m}`,
+      })) as ModelOption[],
     }));
 });
 
@@ -114,11 +122,11 @@ async function onSave(): Promise<void> {
             <n-form-item label="别名" style="margin-bottom: 0">
               <n-input v-model:value="a.name" placeholder="如 fast" style="width: 160px" />
             </n-form-item>
-            <n-form-item label="目标（有序，failover 顺序，先选提供商再选模型）" style="margin-bottom: 0">
-              <n-cascader
+            <n-form-item label="目标（先选提供商，再选其下的模型）" style="margin-bottom: 0">
+              <n-select
                 :value="targetValue(a)"
-                :options="providerCascaderOptions"
-                placeholder="先选提供商，再选模型"
+                :options="providerSelectOptions"
+                placeholder="选择提供商下的模型"
                 style="width: 100%"
                 @update:value="(val: string | null) => onTargetChange(a, val)"
               />
