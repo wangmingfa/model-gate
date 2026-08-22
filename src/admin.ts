@@ -341,7 +341,8 @@ export function createAdminApp(
     return c.json({ ok: true, issues });
   });
 
-  // 测试连接：用后端持有的真实 key 发 1-token 请求
+  // 测试连接：用「前端草稿优先、服务端配置回退」的 base_url / api_key 发 1-token 请求。
+  // 这样未保存的新增/修改也能先验证，不必先落盘；api_key 仅在本次请求使用，不持久化。
   admin.post('/api/test', async (c) => {
     let body: unknown;
     try {
@@ -349,18 +350,39 @@ export function createAdminApp(
     } catch {
       return c.json({ error: { message: '请求体必须是合法 JSON', type: 'invalid_request_error' } }, 400);
     }
-    const { provider, model } = (body ?? {}) as { provider?: string; model?: string };
-    const cfg = getConfig();
-    const p = provider ? cfg.providers[provider] : undefined;
-    if (!p) return c.json({ error: { message: `未知 provider: ${provider ?? ''}`, type: 'invalid_request_error' } }, 400);
-    if (typeof model !== 'string' || !p.models.includes(model)) {
-      return c.json({ error: { message: `provider ${provider} 没有模型 ${model ?? ''}`, type: 'invalid_request_error' } }, 400);
+    const { provider, model, base_url: draftBaseUrl, api_key: draftApiKey } = (body ?? {}) as {
+      provider?: string;
+      model?: string;
+      base_url?: string;
+      api_key?: string;
+    };
+    if (typeof provider !== 'string' || !provider) {
+      return c.json({ error: { message: 'provider 必填', type: 'invalid_request_error' } }, 400);
     }
+    if (typeof model !== 'string' || !model) {
+      return c.json({ error: { message: 'model 必填', type: 'invalid_request_error' } }, 400);
+    }
+    const cfg = getConfig();
+    const saved = cfg.providers[provider];
+
+    // base_url：前端草稿非空用草稿，否则回退服务端已保存值
+    const baseUrl = (typeof draftBaseUrl === 'string' && draftBaseUrl.trim()) ? draftBaseUrl.trim() : saved?.base_url;
+    if (!baseUrl) {
+      return c.json(
+        { error: { message: saved ? `provider ${provider} 未配置 base_url` : `未知 provider: ${provider}（未保存则需在表单中填写 base_url）`, type: 'invalid_request_error' } },
+        400,
+      );
+    }
+
+    // api_key：前端填了非空用前端草稿值（本次测试用，不持久化），否则回退服务端真实 key；
+    // 空串/未填表示「保持原值」，必须用服务端已保存的 key，避免用空串去打上游
+    const apiKey = (typeof draftApiKey === 'string' && draftApiKey.trim()) ? draftApiKey.trim() : saved?.api_key ?? '';
+
     const start = Date.now();
     try {
-      const res = await fetch(`${p.base_url}/chat/completions`, {
+      const res = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${p.api_key}` },
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({ model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 }),
         signal: AbortSignal.timeout(15000),
       });

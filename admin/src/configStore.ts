@@ -217,7 +217,11 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
     }
     testStates.value[provider.name] = { testing: true, result: '', ok: false };
     try {
-      const r = await testConnection(provider.name, firstModel);
+      // 把当前草稿（未保存的 base_url / api_key）一并传过去：优先测草稿值，空则后端回退服务端真实配置
+      const r = await testConnection(provider.name, firstModel, {
+        base_url: provider.base_url,
+        api_key: provider.api_key,
+      });
       testStates.value[provider.name] = {
         testing: false,
         ok: r.ok,

@@ -74,8 +74,16 @@ export interface TestResult {
   error?: string;
 }
 
-export function testConnection(provider: string, model: string): Promise<TestResult> {
-  return request('/test', { method: 'POST', body: JSON.stringify({ provider, model }) });
+export function testConnection(
+  provider: string,
+  model: string,
+  /** 前端当前草稿（未保存）的 base_url / api_key；为空则后端回退用服务端已保存的真实值 */
+  draft?: { base_url?: string; api_key?: string },
+): Promise<TestResult> {
+  return request('/test', {
+    method: 'POST',
+    body: JSON.stringify({ provider, model, base_url: draft?.base_url ?? '', api_key: draft?.api_key ?? '' }),
+  });
 }
 
 // ---- 登录 / 登出 / 登录状态 ----
