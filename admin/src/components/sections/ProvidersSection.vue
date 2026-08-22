@@ -1,9 +1,55 @@
 <script setup lang="ts">
+import { ref, watch } from 'vue';
 import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NDynamicInput, NTag, NIcon } from 'naive-ui';
-import { ServerOutline } from '@vicons/ionicons5';
-import { useConfigStore } from '../../configStore';
+import { ServerOutline, SaveOutline } from '@vicons/ionicons5';
+import { useConfigStore, type ProviderRow } from '../../configStore';
 
 const store = useConfigStore();
+
+// 本地草稿：深拷贝，编辑不实时落盘；点「保存」才写回 store 并落盘
+const draft = ref<ProviderRow[]>(JSON.parse(JSON.stringify(store.providers)));
+// 折叠状态用本地驱动（默认全展开）
+const expandedNames = ref<string[]>(draft.value.map((p) => p._id));
+
+// 行级 ID 生成器（与 store 同款，仅前端追踪用）
+let rowSeq = 0;
+function nextRowId(): string {
+  return `row-${++rowSeq}`;
+}
+
+function addProvider(): void {
+  const id = nextRowId();
+  draft.value.push({ _id: id, name: '', base_url: '', api_key: '', models: [] });
+  expandedNames.value.push(id); // 新行默认展开
+}
+
+// store.providers 由 load() 异步填充；首次有数据时把草稿同步过来（用户尚未编辑则覆盖，
+// 已编辑则不覆盖，避免丢失进行中的改动）。解决「setup 时 store 还是空数组」的竞态。
+watch(
+  () => store.providers,
+  (val) => {
+    if (val.length && draft.value.length === 0) {
+      draft.value = JSON.parse(JSON.stringify(val));
+      expandedNames.value = draft.value.map((p) => p._id);
+    }
+  },
+  { deep: false },
+);
+function removeProvider(index: number): void {
+  const name = draft.value[index].name || `#${index + 1}`;
+  store.removeProviderConfirm(name, async () => {
+    draft.value.splice(index, 1);
+    await onSave();
+  });
+}
+
+async function onSave(): Promise<void> {
+  // 写回 store（深拷贝，避免草稿与 store 共享引用）
+  store.providers = JSON.parse(JSON.stringify(draft.value));
+  await store.saveSection({ successMsg: '上游运营商已保存' });
+  // 保存后同步草稿（失败 load 已回滚 store，草稿以 store 为准）
+  draft.value = JSON.parse(JSON.stringify(store.providers));
+}
 </script>
 
 <template>
@@ -12,8 +58,8 @@ const store = useConfigStore();
       <span class="card-title"><n-icon :size="16"><ServerOutline /></n-icon> 上游运营商（providers）</span>
     </template>
     <n-space vertical>
-      <n-collapse v-model:expanded-names="store.expandedProviderNames">
-        <n-collapse-item v-for="(p, i) in store.providers" :key="p._id" :name="p._id" arrow-placement="left">
+      <n-collapse v-model:expanded-names="expandedNames">
+        <n-collapse-item v-for="(p, i) in draft" :key="p._id" :name="p._id" arrow-placement="left">
           <template #header>
             <span style="font-weight: 600">
               provider #{{ i + 1 }}
@@ -33,17 +79,17 @@ const store = useConfigStore();
             "
           >
             <div style="display: flex; justify-content: flex-end; align-items: center">
-              <n-button size="small" type="error" quaternary @click="store.removeProvider(i)">删除</n-button>
+              <n-button size="small" type="error" quaternary @click="removeProvider(i)">删除</n-button>
             </div>
             <div style="display: flex; align-items: baseline; gap: 12px" class="provider-name-row">
               <div style="width: 160px; flex-shrink: 0">
                 <n-form-item label="名称" style="margin-bottom: 0">
-                  <n-input v-model:value="p.name" placeholder="如 deepseek" @blur="store.autoSave()" />
+                  <n-input v-model:value="p.name" placeholder="如 deepseek" />
                 </n-form-item>
               </div>
               <div style="flex: 1; min-width: 0" class="provider-base-url">
                 <n-form-item label="base_url" style="margin-bottom: 0">
-                  <n-input v-model:value="p.base_url" placeholder="https://api.deepseek.com/v1" style="width: 100%" @blur="store.autoSave()" />
+                  <n-input v-model:value="p.base_url" placeholder="https://api.deepseek.com/v1" style="width: 100%" />
                 </n-form-item>
               </div>
             </div>
@@ -56,7 +102,6 @@ const store = useConfigStore();
                     show-password-on="click"
                     placeholder="留空保持原值"
                     style="width: 100%"
-                    @blur="store.autoSave()"
                   />
                 </n-form-item>
               </div>
@@ -76,13 +121,19 @@ const store = useConfigStore();
                 {{ store.testStates[p.name]?.result }}
               </n-tag>
             </div>
-            <n-form-item label="模型列表">
-              <n-dynamic-input v-model:value="p.models" placeholder="模型 id，如 deepseek-chat" style="width: 100%" @update:value="store.scheduleAutoSave()" />
+            <n-form-item label="模型列表" style="margin-bottom: 0">
+              <n-dynamic-input v-model:value="p.models" placeholder="模型 id，如 deepseek-chat" style="width: 100%" />
             </n-form-item>
           </div>
         </n-collapse-item>
       </n-collapse>
-      <n-button size="small" @click="store.addProvider">+ 添加 provider</n-button>
+      <n-space justify="space-between">
+        <n-button size="small" @click="addProvider">+ 添加 provider</n-button>
+        <n-button type="primary" :loading="store.saving" @click="onSave">
+          <template #icon><n-icon><SaveOutline /></n-icon></template>
+          保存
+        </n-button>
+      </n-space>
     </n-space>
   </n-card>
 </template>

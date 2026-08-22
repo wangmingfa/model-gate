@@ -88,31 +88,11 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
   // 测试连接状态：providerName -> { testing, result }
   const testStates = ref<Record<string, { testing: boolean; result: string; ok: boolean }>>({});
 
-  // 已折叠的行 ID 集合（默认全部展开；用稳定 _id 驱动，改名/删除/重排都不错乱）
-  const collapsedProviders = ref(new Set<string>());
-  const collapsedAliases = ref(new Set<string>());
-
   // 行级 ID 生成器（仅前端追踪用，不进配置草稿；provider/alias 共用一个序列即可）
   let rowSeq = 0;
   function nextRowId(): string {
     return `row-${++rowSeq}`;
   }
-
-  const expandedProviderNames = computed<string[]>({
-    get: () => providers.value.map((p) => p._id).filter((id) => !collapsedProviders.value.has(id)),
-    set: (names) => {
-      const expanded = new Set(names);
-      collapsedProviders.value = new Set(providers.value.map((p) => p._id).filter((id) => !expanded.has(id)));
-    },
-  });
-
-  const expandedAliasNames = computed<string[]>({
-    get: () => aliases.value.map((a) => a._id).filter((id) => !collapsedAliases.value.has(id)),
-    set: (names) => {
-      const expanded = new Set(names);
-      collapsedAliases.value = new Set(aliases.value.map((a) => a._id).filter((id) => !expanded.has(id)));
-    },
-  });
 
   async function load(): Promise<void> {
     loading.value = true;
@@ -203,32 +183,28 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
     });
   }
 
-  /** 删除 provider */
-  function removeProvider(index: number): void {
-    const name = providers.value[index].name || `#${index + 1}`;
+  /** 删除 provider：仅弹确认框，实际删除 + 保存由版块 onSave 负责（删除已存在行不会触发空壳校验） */
+  function removeProviderConfirm(name: string, onConfirm: () => void | Promise<void>): void {
     dialog.warning({
       title: '确认删除',
       content: `确认删除 provider「${name}」吗？此操作不可撤销。`,
       positiveText: '删除',
       negativeText: '取消',
       async onPositiveClick() {
-        providers.value.splice(index, 1);
-        await autoSave({ successMsg: `已删除 provider ${name} 并保存` });
+        await onConfirm();
       },
     });
   }
 
-  /** 删除别名 */
-  function removeAlias(index: number): void {
-    const name = aliases.value[index].name || `#${index + 1}`;
+  /** 删除别名：仅弹确认框，实际删除 + 保存由版块 onSave 负责 */
+  function removeAliasConfirm(name: string, onConfirm: () => void | Promise<void>): void {
     dialog.warning({
       title: '确认删除',
       content: `确认删除别名「${name}」吗？此操作不可撤销。`,
       positiveText: '删除',
       negativeText: '取消',
       async onPositiveClick() {
-        aliases.value.splice(index, 1);
-        await autoSave({ successMsg: `已删除别名 ${name} 并保存` });
+        await onConfirm();
       },
     });
   }
@@ -299,6 +275,22 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
     }, 400);
   }
 
+  /** 版块显式保存：由各版块「保存」按钮调用。由调用方先把本地草稿写回 store 再调用，
+   *  这里统一走 buildDraft + saveConfig；失败则 load 回滚。 */
+  async function saveSection(opts?: { successMsg?: string }): Promise<void> {
+    saving.value = true;
+    try {
+      await saveConfig(buildDraft());
+      if (opts?.successMsg) message.success(opts.successMsg);
+      checkIssues.value = null; // 配置已变动，上一轮体检结果作废（重新检查才更新标红）
+    } catch (e) {
+      await load(); // 失败则拉取服务端真实状态，回滚本地编辑
+      message.error(`保存失败：${(e as Error).message}`);
+    } finally {
+      saving.value = false;
+    }
+  }
+
   /** 检查配置正确性：对服务端当前运行配置体检，结果用于页面标红与报告；返回 error 级问题（供导航跳转） */
   async function runCheck(): Promise<ConfigIssue[]> {
     checking.value = true;
@@ -346,8 +338,6 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
     defaultModelOptions,
     apiBaseUrl,
     testStates,
-    expandedProviderNames,
-    expandedAliasNames,
     // 动作
     load,
     addProvider,
@@ -357,11 +347,12 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
     copyPendingKey,
     copyKey,
     removeKey,
-    removeProvider,
-    removeAlias,
+    removeProviderConfirm,
+    removeAliasConfirm,
     onTest,
     autoSave,
     scheduleAutoSave,
+    saveSection,
     runCheck,
   };
 }
