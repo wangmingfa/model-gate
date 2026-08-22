@@ -1,9 +1,16 @@
 {
   "name": "model-gate",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "LLM API 中转网关：配置文件配置多家运营商模型，对外暴露统一 OpenAI 兼容接口",
+  "bin": {
+    "model-gate": "./model-gate.js"
+  },
+  "files": [
+    "model-gate.js",
+    "README.md",
+    "config.example.json"
+  ],
   "engines": {
     "bun": ">=1.0.0"
   },
@@ -15,8 +22,7 @@
     "build": "bun run embed && bun build src/index.ts --target=bun --outfile model-gate.js",
     "test": "bun test --path-ignore-patterns=admin",
     "typecheck": "bun node_modules/typescript/bin/tsc --noEmit",
-    "kill-dev": "bun scripts/kill-dev.mjs",
-    "postinstall": "bun install --cwd admin"
+    "kill-dev": "bun scripts/kill-dev.mjs"
   },
   "dependencies": {
     "hono": "^4.6.0"

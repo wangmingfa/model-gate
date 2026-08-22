@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 import { statSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { loadConfig, ConfigError } from './config';
