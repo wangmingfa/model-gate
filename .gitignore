@@ -3,3 +3,6 @@ config.json
 access.log
 admin/dist/
 model-gate.js
+
+# 构建生成：embed 脚本把 admin/dist 内联进 src，由 bun run build 自动生成
+src/admin-assets.generated.ts
