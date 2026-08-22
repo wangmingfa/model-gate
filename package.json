@@ -16,7 +16,7 @@
   },
   "scripts": {
     "dev": "bun run --parallel dev:api dev:ui",
-    "dev:api": "MODEL_GATE_DEV=1 bun --watch src/index.ts",
+    "dev:api": "MODEL_GATE_DEV=1 NODE_ENV=development bun scripts/ensure-admin-assets.ts && bun --watch src/index.ts",
     "dev:ui": "cd admin && bun run dev",
     "embed": "bun install --cwd admin && bun run --cwd admin build && bun scripts/embed-assets.ts",
     "build": "bun run embed && bun build src/index.ts --target=bun --outfile model-gate.js",
