@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Context, Next } from 'hono';
 import { readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { Config } from './config';
 import { validateConfig, checkConfig } from './config';
 import { adminAssets } from './admin-assets.generated';
@@ -17,8 +17,6 @@ const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 小时
 const MAX_LOGIN_FAILS = 5;
 const LOGIN_LOCK_MS = 60 * 1000; // 5 次失败锁 60s
 
-/** 会话：token -> 过期时间戳（内存态，重启失效） */
-const sessions = new Map<string, number>();
 /** 登录限流：ip -> { 失败次数, 锁定截止时间戳 } */
 const loginFails = new Map<string, { fails: number; lockedUntil: number }>();
 
@@ -27,10 +25,45 @@ function isLoopbackAddress(addr: string): boolean {
   return a === '127.0.0.1' || a === '::1';
 }
 
-/** 密钥掩码：保留前 3 后 3，如 sk-****abc；短密钥全掩 */
-export function maskKey(key: string): string {
-  if (key.length <= 6) return '****';
-  return `${key.slice(0, 3)}****${key.slice(-3)}`;
+/**
+ * 签名 cookie（无状态登录）：
+ * - token = base64url(payload) + "." + base64url(HMAC_SHA256(secret, payload))
+ * - payload = { exp }（毫秒时间戳），密钥由 admin_password 派生，故轮换密码即令旧 token 失效
+ * - 后端不存储任何会话：校验只看签名与 exp，重启不失效
+ */
+function b64url(buf: Buffer): string {
+  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function b64urlDecode(s: string): Buffer {
+  const pad = s.length % 4 === 0 ? '' : '='.repeat(4 - (s.length % 4));
+  return Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/') + pad, 'base64');
+}
+function sessionSecret(password: string): string {
+  // 派生固定长度密钥：HMAC(admin_password, 固定上下文)。空密码不会走到这里（回环/未配置不校验）。
+  return createHmac('sha256', 'mg-admin-session-v1').update(password).digest('hex');
+}
+function signSession(exp: number, password: string): string {
+  const payload = b64url(Buffer.from(JSON.stringify({ exp })));
+  const sig = b64url(createHmac('sha256', sessionSecret(password)).update(payload).digest());
+  return `${payload}.${sig}`;
+}
+/** 校验 token：格式/签名/exp 任一不对返回 null */
+function verifySession(token: string | undefined, password: string): boolean {
+  if (!token) return false;
+  const dot = token.indexOf('.');
+  if (dot <= 0) return false;
+  const payload = token.slice(0, dot);
+  const sig = token.slice(dot + 1);
+  const expected = b64url(createHmac('sha256', sessionSecret(password)).update(payload).digest());
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return false;
+  try {
+    const obj = JSON.parse(b64urlDecode(payload).toString('utf-8')) as { exp?: number };
+    return typeof obj.exp === 'number' && obj.exp > Date.now();
+  } catch {
+    return false;
+  }
 }
 
 function parseCookies(header: string): Record<string, string> {
@@ -60,7 +93,7 @@ function clientIp(c: Context): string | null {
  * - 非回环 + 公开端点（SPA 静态、auth-status/login/logout）→ 放行
  * - 非回环 + 其余端点 → 必须携带有效会话 cookie，否则 401 auth_required
  */
-async function authGuard(c: Context, next: Next): Promise<Response | void> {
+async function authGuard(getConfig: () => Config, c: Context, next: Next): Promise<Response | void> {
   const ip = clientIp(c);
   if (!ip || isLoopbackAddress(ip)) return next();
 
@@ -71,8 +104,9 @@ async function authGuard(c: Context, next: Next): Promise<Response | void> {
     /^\/admin\/api\/(auth-status|login|logout)$/.test(path);
   if (isPublic) return next();
 
+  const cfg = getConfig();
   const token = parseCookies(c.req.header('cookie') ?? '')[SESSION_COOKIE];
-  if (token && (sessions.get(token) ?? 0) > Date.now()) return next();
+  if (verifySession(token, cfg.admin_password)) return next();
   return c.json(
     { error: { message: '需要登录', type: 'unauthorized', code: 'auth_required' } },
     401,
@@ -83,7 +117,7 @@ function clearSessionCookie(): string {
   return `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/admin; Max-Age=0`;
 }
 
-/** 读取磁盘上原始配置（api_key 可能仍是 ${VAR} 引用），用于 PUT 时保持原值 */
+/** 读取磁盘上原始配置（api_key 可能为 ${VAR} 引用），用于 PUT 时「留空保持原值」回退 */
 function readRaw(path: string): Record<string, unknown> | null {
   try {
     return JSON.parse(readFileSync(path, 'utf-8')) as Record<string, unknown>;
@@ -93,36 +127,14 @@ function readRaw(path: string): Record<string, unknown> | null {
 }
 
 /**
- * PUT 时解析 provider 的 api_key：
- * - 留空或等于当前掩码形式 → 保持原始值（保留 ${VAR} 引用）
- * - 否则当作新值
+ * PUT 时解析 provider 的 api_key（掩码只在前端做，后端不解析）：
+ * - 留空 → 保持磁盘原始值（保留 ${VAR} 引用或已有明文，不误删）
+ * - 其他（含 ${VAR} 引用、明文、新值）→ 原样保存
+ * 注意：前端从 GET 拿到的是 api_key_raw，回写时也发 raw，因此 ${VAR} 引用不会被破坏。
  */
-function resolveApiKey(draftVal: unknown, resolvedCur: string | undefined, rawCur: unknown): unknown {
-  if (typeof draftVal !== 'string') return draftVal;
-  if (draftVal === '' && resolvedCur) return rawCur ?? resolvedCur;
-  if (resolvedCur && maskKey(resolvedCur) === draftVal) return rawCur ?? resolvedCur;
+function resolveApiKey(draftVal: unknown, rawCur: unknown): unknown {
+  if (draftVal === '' && typeof rawCur === 'string') return rawCur;
   return draftVal;
-}
-
-/**
- * PUT 时解析 keys 数组（新结构 {name,key,created_at}[]）：
- * - 掩码条目（key 等于当前掩码形式）→ 按 name 还原为原始值（保留 raw 中的原始 key）
- * - 新增条目 → 原样保留（name + 完整 key + created_at）
- */
-function resolveKeys(draftKeys: unknown, current: Config, raw: Record<string, unknown> | null): unknown {
-  if (!Array.isArray(draftKeys)) return draftKeys;
-  const rawKeys = Array.isArray(raw?.keys) ? (raw.keys as Record<string, unknown>[]) : [];
-  return draftKeys.map((k) => {
-    if (typeof k !== 'object' || k === null) return k;
-    const item = k as Record<string, unknown>;
-    if (typeof item.name !== 'string' || typeof item.key !== 'string') return item;
-    const cur = current.keys.find((c) => c.name === item.name);
-    if (cur && maskKey(cur.key) === item.key) {
-      const rawKey = rawKeys.find((r) => r.name === item.name)?.key;
-      return { ...item, key: typeof rawKey === 'string' ? rawKey : cur.key };
-    }
-    return item;
-  });
 }
 
 function atomicWrite(path: string, content: string): void {
@@ -173,13 +185,13 @@ export function createAdminApp(
   opts?: { includeStatic?: boolean },
 ): Hono {
   const admin = new Hono();
-  admin.use('*', authGuard);
+  admin.use('*', (c, next) => authGuard(getConfig, c, next));
 
   // 登录状态：未配密码时登录页提示去配置文件配置；登录后供前端三态渲染
   admin.get('/api/auth-status', (c) => {
     const cfg = getConfig();
     const token = parseCookies(c.req.header('cookie') ?? '')[SESSION_COOKIE];
-    const loggedIn = !!token && (sessions.get(token) ?? 0) > Date.now();
+    const loggedIn = verifySession(token, cfg.admin_password);
     return c.json({
       passwordConfigured: cfg.admin_password !== '',
       configPath: configPath ?? 'config.json',
@@ -222,8 +234,8 @@ export function createAdminApp(
       return c.json({ error: { message: '密码错误', type: 'unauthorized', code: 'invalid_password' } }, 401);
     }
     if (ip) loginFails.delete(ip); // 成功即清失败计数
-    const token = randomBytes(32).toString('hex');
-    sessions.set(token, Date.now() + SESSION_TTL_MS);
+    // 签发无状态签名 cookie：payload 仅含 exp，密钥派生自 admin_password，后端不存储
+    const token = signSession(Date.now() + SESSION_TTL_MS, cfg.admin_password);
     return c.json(
       { ok: true },
       {
@@ -235,24 +247,22 @@ export function createAdminApp(
     );
   });
 
-  // 登出：销毁会话 + 清 cookie
+  // 登出：无状态，后端不记录；清 cookie 即可（旧 token 仍可校验，但浏览器不再携带）
   admin.post('/api/logout', (c) => {
-    const token = parseCookies(c.req.header('cookie') ?? '')[SESSION_COOKIE];
-    if (token) sessions.delete(token);
     return c.json({ ok: true }, { status: 200, headers: { 'set-cookie': clearSessionCookie() } });
   });
 
-  // 返回完整配置（前端编辑底稿；keys 返回原始值，前端负责掩码显示）
+  // 返回完整配置（前端编辑底稿；keys 返回完整值，前端负责掩码显示；
+  // provider 的 api_key 返回「原始字符串」（可能为 ${VAR} 引用或明文），前端原样回写，
+  // 掩码只在前端做，后端不参与。PUT 时前端原样回传即原样保存。）
   admin.get('/api/config', (c) => {
     const cfg = getConfig();
     const { admin_password, ...rest } = cfg; // admin_password 不进编辑范围
-    // 注意：api_key 返回真实值（前端为 password 输入框，明文不可见）；
-    // 真实密钥会经网络传至浏览器，若在意泄露可改回 maskKey。PUT 时前端原样回传即原样保存。
     return c.json({
       ...rest,
       keys: cfg.keys,
       providers: Object.fromEntries(
-        Object.entries(cfg.providers).map(([name, p]) => [name, { ...p, api_key: p.api_key }]),
+        Object.entries(cfg.providers).map(([name, p]) => [name, { ...p, api_key: p.api_key_raw }]),
       ),
     });
   });
@@ -275,23 +285,19 @@ export function createAdminApp(
       return c.json({ error: { message: '请求体必须是 JSON 对象', type: 'invalid_request_error', code: 'invalid_json' } }, 400);
     }
     const d = draft as Record<string, unknown>;
-    const current = getConfig();
     const raw = readRaw(configPath);
 
-    if (Array.isArray(d.keys)) d.keys = resolveKeys(d.keys, current, raw);
+    // keys：掩码只在前端做，前端始终回传完整 key，后端原样保存（不再按掩码还原）
+    // providers：api_key 留空 → 保持磁盘原始值（保留 ${VAR} 引用），否则原样保存
     if (typeof d.providers === 'object' && d.providers !== null) {
       const providers = { ...(d.providers as Record<string, unknown>) };
       for (const [name, p] of Object.entries(providers)) {
         if (typeof p === 'object' && p !== null) {
-          const cur = current.providers[name];
+          const rawCur = (raw?.providers as Record<string, unknown> | undefined)?.[name] &&
+            ((raw?.providers as Record<string, unknown>)[name] as Record<string, unknown>).api_key;
           providers[name] = {
             ...(p as Record<string, unknown>),
-            api_key: resolveApiKey(
-              (p as Record<string, unknown>).api_key,
-              cur?.api_key,
-              (raw?.providers as Record<string, unknown> | undefined)?.[name] &&
-                ((raw?.providers as Record<string, unknown>)[name] as Record<string, unknown>).api_key,
-            ),
+            api_key: resolveApiKey((p as Record<string, unknown>).api_key, rawCur),
           };
         }
       }

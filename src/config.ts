@@ -4,8 +4,10 @@ import { readFileSync } from 'node:fs';
 export interface ProviderConfig {
   /** base_url，如 https://api.deepseek.com/v1（末尾斜杠会被去掉） */
   base_url: string;
-  /** 上游密钥，支持 ${ENV_VAR} 环境变量插值 */
+  /** 上游密钥（解析后，运行时使用），支持 ${ENV_VAR} 插值 */
   api_key: string;
+  /** 上游密钥原始字符串（未经插值，可能为 ${VAR} 引用或明文）；仅供管理界面原样回写，避免误落明文/破坏引用 */
+  api_key_raw: string;
   /** 该 provider 可用的模型列表 */
   models: string[];
 }
@@ -156,9 +158,10 @@ export function validateConfig(raw: unknown, path = '<config>', mode: 'strict' |
       fail(`providers.${name}.base_url 必须是 http(s) URL`);
     }
     const base_url = base_urlRaw as string; // 运行时校验已保证是 string
+    const apiKeyRaw = typeof p.api_key === 'string' ? p.api_key : '';
     const api_key = ((): string => {
       try {
-        return interpolateEnv(p.api_key);
+        return interpolateEnv(apiKeyRaw);
       } catch (e) {
         return fail(`providers.${name}.api_key: ${(e as Error).message}`);
       }
@@ -174,6 +177,7 @@ export function validateConfig(raw: unknown, path = '<config>', mode: 'strict' |
     providers[name] = {
       base_url: base_url.replace(/\/+$/, ''),
       api_key,
+      api_key_raw: apiKeyRaw,
       models: modelsRaw as string[],
     };
   }

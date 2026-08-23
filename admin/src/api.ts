@@ -2,7 +2,7 @@
 
 export interface ProviderDraft {
   base_url: string;
-  /** 掩码形式（sk-****abc）或新密钥；留空 = 保持原值 */
+  /** provider 原始 api_key（可能是 ${VAR} 引用或明文）；前端仅用于显示时掩码，回写原样保存；留空 = 保持磁盘原值 */
   api_key: string;
   models: string[];
 }

@@ -18,7 +18,7 @@ const base: Config = {
   ],
   admin_password: '',
   providers: {
-    deepseek: { base_url: 'https://api.deepseek.com/v1', api_key: 'sk-real-deepseek-key', models: ['deepseek-chat'] },
+    deepseek: { base_url: 'https://api.deepseek.com/v1', api_key: 'sk-real-deepseek-key', api_key_raw: 'sk-real-deepseek-key', models: ['deepseek-chat'] },
   },
   aliases: { fast: ['deepseek:deepseek-chat'] },
 };
@@ -128,13 +128,33 @@ describe('Web UI 密码登录', () => {
     expect(j.error.code).toBe('login_locked');
   });
 
-  test('登出：销毁会话后 cookie 失效', async () => {
+  test('登出：清 cookie 后无凭证访问受保护端点 → 401（无状态，后端不记录）', async () => {
     writeConfig({ ...base, admin_password: 'secret' });
     const loginRes = await adminReq('/api/login', { method: 'POST', body: JSON.stringify({ password: 'secret' }) }, remoteIp(6));
     const cookie = (loginRes.headers.get('set-cookie') ?? '').split(';')[0];
     const logoutRes = await adminReq('/api/logout', { method: 'POST', headers: { cookie } }, remoteIp(6));
     expect(logoutRes.status).toBe(200);
-    const cfgRes = await adminReq('/api/config', { headers: { cookie } }, remoteIp(6));
+    // 登出后浏览器不再携带 cookie，受保护端点要求重新登录
+    const cfgRes = await adminReq('/api/config', {}, remoteIp(6));
+    expect(cfgRes.status).toBe(401);
+  });
+
+  test('签名 cookie：篡改签名 → 401（防伪造）', async () => {
+    writeConfig({ ...base, admin_password: 'secret' });
+    const loginRes = await adminReq('/api/login', { method: 'POST', body: JSON.stringify({ password: 'secret' }) }, remoteIp(8));
+    const cookie = (loginRes.headers.get('set-cookie') ?? '').split(';')[0];
+    const tampered = `${cookie.slice(0, -2)}xx`; // 改签名末两位
+    const cfgRes = await adminReq('/api/config', { headers: { cookie: tampered } }, remoteIp(8));
+    expect(cfgRes.status).toBe(401);
+  });
+
+  test('签名 cookie：用不同密码签发的 token 在本机不通过（轮换密码即失效）', async () => {
+    writeConfig({ ...base, admin_password: 'secret' });
+    const loginRes = await adminReq('/api/login', { method: 'POST', body: JSON.stringify({ password: 'secret' }) }, remoteIp(9));
+    const cookie = (loginRes.headers.get('set-cookie') ?? '').split(';')[0];
+    // 改密码后（模拟密码轮换/重启后配置变更），旧 cookie 应失效
+    writeConfig({ ...base, admin_password: 'new-secret' });
+    const cfgRes = await adminReq('/api/config', { headers: { cookie } }, remoteIp(9));
     expect(cfgRes.status).toBe(401);
   });
 
@@ -174,17 +194,17 @@ describe('PUT /admin/api/config', () => {
     expect(onDisk.default_model).toBe('fast');
   });
 
-  test('api_key 用 ${ENV} 引用时，保存后文件仍保留引用而不落明文', async () => {
+  test('api_key 用 ${ENV} 引用时，前端原样回写引用，保存后文件仍保留引用而不落明文', async () => {
     process.env.MG_ADMIN_TEST_KEY = 'sk-env-secret-123';
     const envCfg = {
       ...base,
       providers: {
-        deepseek: { base_url: 'https://api.deepseek.com/v1', api_key: '${MG_ADMIN_TEST_KEY}', models: ['deepseek-chat'] },
+        deepseek: { base_url: 'https://api.deepseek.com/v1', api_key: 'sk-env-secret-123', api_key_raw: '${MG_ADMIN_TEST_KEY}', models: ['deepseek-chat'] },
       },
     };
     writeConfig(envCfg);
-    // 前端看到的是掩码后的值（maskKey('sk-env-secret-123') = 'sk-****123'），原样回写
-    const draft = { ...envCfg, providers: { deepseek: { ...envCfg.providers.deepseek, api_key: 'sk-****123' } } };
+    // GET 返回 api_key_raw（即 ${VAR} 引用本身），前端原样回写（掩码只在前端显示，不进请求体）
+    const draft = { ...envCfg, providers: { deepseek: { ...envCfg.providers.deepseek } } };
     const res = await adminReq('/api/config', { method: 'PUT', body: JSON.stringify(draft) });
     expect(res.status).toBe(200);
     // 关键断言：config.json 里必须仍是 ${VAR} 引用，绝不能是解析后的明文
@@ -209,7 +229,7 @@ describe('PUT /admin/api/config', () => {
     expect(onDisk.aliases.fast).toEqual(['deepseek:deepseek-chat']);
   });
 
-  test('api_key 留空 = 保持原值', async () => {
+  test('api_key 留空 = 保持原值（保留磁盘上的 ${VAR} 引用或明文）', async () => {
     writeConfig(base);
     const draft = {
       ...base,
@@ -221,24 +241,24 @@ describe('PUT /admin/api/config', () => {
     expect(onDisk.providers.deepseek.api_key).toBe('sk-real-deepseek-key');
   });
 
-  test('api_key 填掩码形式 = 保持原值', async () => {
+  test('api_key 原样回写（含 ${VAR} 引用或明文，掩码只在前端做）', async () => {
     writeConfig(base);
     const draft = {
       ...base,
-      providers: { deepseek: { base_url: 'https://api.deepseek.com/v1', api_key: 'sk-****key', models: ['deepseek-chat'] } },
+      providers: { deepseek: { base_url: 'https://api.deepseek.com/v1', api_key: 'sk-brand-new-key', models: ['deepseek-chat'] } },
     };
     const res = await adminReq('/api/config', { method: 'PUT', body: JSON.stringify(draft) });
     expect(res.status).toBe(200);
     const onDisk = loadConfig(tmpPath);
-    expect(onDisk.providers.deepseek.api_key).toBe('sk-real-deepseek-key');
+    expect(onDisk.providers.deepseek.api_key).toBe('sk-brand-new-key');
   });
 
-  test('keys 中掩码形式的条目保持原值，新增条目生效', async () => {
+  test('keys 原样保存（前端回传完整 key，新增条目生效）', async () => {
     writeConfig(base);
     const draft = {
       ...base,
       keys: [
-        { name: 'agent-one', key: 'sk-****one', created_at: '2026-01-01T00:00:00.000Z' },
+        { name: 'agent-one', key: 'sk-agent-one', created_at: '2026-01-01T00:00:00.000Z' },
         { name: 'new-key', key: 'sk-new-key', created_at: '2026-02-01T00:00:00.000Z' },
       ],
     };

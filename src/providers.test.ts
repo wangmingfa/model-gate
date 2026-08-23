@@ -11,8 +11,8 @@ const cfg: Config = {
   keys: [{ name: 'a', key: 'sk-a', created_at: '2026-01-01T00:00:00.000Z' }],
   admin_password: '',
   providers: {
-    deepseek: { base_url: 'https://api.deepseek.com/v1', api_key: 'sk-ds', models: ['deepseek-chat'] },
-    kimi: { base_url: 'https://api.moonshot.cn/v1', api_key: 'sk-kimi', models: ['moonshot-v1-8k'] },
+    deepseek: { base_url: 'https://api.deepseek.com/v1', api_key: 'sk-ds', api_key_raw: 'sk-ds', models: ['deepseek-chat'] },
+    kimi: { base_url: 'https://api.moonshot.cn/v1', api_key: 'sk-kimi', api_key_raw: 'sk-kimi', models: ['moonshot-v1-8k'] },
   },
   aliases: {
     fast: ['deepseek:deepseek-chat', 'kimi:moonshot-v1-8k'],
