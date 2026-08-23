@@ -7,6 +7,7 @@
  *   2. 选择版本升级：major / minor / patch / iteration（beta 默认 iteration，latest 默认 patch）
  *   3. 方向键确认发布
  *   4. 自动：写回 package.json version → bun run build → npm publish（beta 带 --tag beta）
+ *   5. 发布成功后自动 git commit package.json 的版本变更（不 push）
  *
  * 也支持非交互（CI / 脚本调用）：
  *   bun scripts/release.ts <latest|beta> <major|minor|patch|iteration> [otp]   # 旧版：指定通道+升级
@@ -281,6 +282,28 @@ async function main() {
   await run('npm', publishArgs);
 
   console.log(`\n🎉 已发布 ${pkg.name}@${newVer} (${channel})`);
+
+  // 4. 发布成功后自动提交版本变更（仅 package.json，build 产物已被 gitignore）
+  await gitCommitRelease(pkg.name, newVer, channel);
+}
+
+/** 发布成功后提交 package.json 的版本变更（不 push，由用户自行决定） */
+async function gitCommitRelease(name: string, version: string, channel: Channel): Promise<void> {
+  // 仅在 git 仓库内、且 package.json 确有改动时才提交
+  const statusProc = Bun.spawn(['git', 'status', '--porcelain', 'package.json'], {
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  const statusOut = await new Response(statusProc.stdout).text();
+  await statusProc.exited;
+  if (!statusOut.trim()) {
+    console.log('\nℹ️  package.json 无改动，跳过 commit。');
+    return;
+  }
+  await run('git', ['add', 'package.json']);
+  const msg = `chore: release ${name}@${version} (${channel})`;
+  await run('git', ['commit', '-m', msg]);
+  console.log(`\n✓ 已提交版本变更（${msg}）。未自动 push，请按需手动推送。`);
 }
 
 if (import.meta.main) {
