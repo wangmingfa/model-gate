@@ -8,8 +8,12 @@
  *   3. 方向键确认发布
  *   4. 自动：写回 package.json version → bun run build → npm publish（beta 带 --tag beta）
  *
- * 也支持非交互（CI / 脚本调用），直接传参：
- *   bun scripts/release.ts <latest|beta> <major|minor|patch|iteration> [otp]
+ * 也支持非交互（CI / 脚本调用）：
+ *   bun scripts/release.ts <latest|beta> <major|minor|patch|iteration> [otp]   # 旧版：指定通道+升级
+ *   bun scripts/release.ts 0.0.0-beta.1 [--otp xxx]                            # 显式版本号：跳过通道/升级选择，仅确认一次
+ *     - 传入合法版本号（x.y.z 或 x.y.z-beta.N）即视为显式指定，自动推断通道（带 -beta 后缀→beta）
+ *     - 自动校验该版本号未被 npm 占用，已占用则报错退出
+ *     - 仅做一次发布确认，不再询问通道与升级方式
  *
  * 版本规则：
  *   - major / minor / patch 基于当前「基础版本」(去掉 prerelease 后缀) 升级
@@ -44,13 +48,39 @@ async function fetchLatestVersion(name: string): Promise<string | null> {
   }
 }
 
+/** 校验字符串是否合法 semver（允许 -prerelease 后缀） */
+export function isValidVersion(v: string): boolean {
+  return /^\d+\.\d+\.\d+(?:-[\w.]+)?$/.test(v);
+}
+
+/** 该版本号是否已在 npm 上发布过（占用） */
+export async function versionExists(name: string, version: string): Promise<boolean> {
+  try {
+    const proc = Bun.spawn(['npm', 'view', `${name}@${version}`, 'version'], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const out = await new Response(proc.stdout).text();
+    const code = await proc.exited;
+    if (code !== 0) return false;
+    return out.trim() === version;
+  } catch {
+    return false;
+  }
+}
+
+/** 从版本号推断通道：带 -beta 等 prerelease 后缀 → beta，否则 latest */
+export function channelOfVersion(v: string): Channel {
+  return /-\w/.test(v) ? 'beta' : 'latest';
+}
+
 type Channel = 'latest' | 'beta';
 type Bump = 'major' | 'minor' | 'patch' | 'iteration';
 
 const CHANNELS: Channel[] = ['latest', 'beta'];
 const BUMPS: Bump[] = ['major', 'minor', 'patch', 'iteration'];
 
-function readPkg(): { name: string; version: string; [k: string]: unknown } {
+export function readPkg(): { name: string; version: string; [k: string]: unknown } {
   return JSON.parse(readFileSync(PKG_PATH, 'utf-8')) as { name: string; version: string };
 }
 
@@ -148,44 +178,87 @@ async function run(cmd: string, args: string[]): Promise<void> {
 
 async function main() {
   const argv = Bun.argv.slice(2);
-  // 通道默认 beta；升级默认随通道：beta→iteration，latest→patch
-  const channel = await pick<Channel>('发布通道 (latest / beta)', CHANNELS, argv[0] ?? undefined, 'beta');
-  const defaultBump: Bump = channel === 'beta' ? 'iteration' : 'patch';
-  const bump = await pick<Bump>('版本升级', BUMPS, argv[1] ?? undefined, defaultBump);
+
+  // 解析可选参数：
+  //   bun run release <version> [--otp xxx]
+  //   bun run release <channel> <bump> [otp]   （旧的非交互用法仍兼容）
+  //   bun run release                            （全交互）
+  let explicitVersion: string | undefined;
+  let otp: string | undefined;
+  const positional: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--otp') {
+      otp = argv[++i];
+    } else if (a.startsWith('--otp=')) {
+      otp = a.slice('--otp='.length);
+    } else if (!a.startsWith('--')) {
+      positional.push(a);
+    }
+  }
+  // 第一个位置参数：若像版本号（x.y.z[-pre]）则视为显式版本，否则走旧版 channel/bump
+  if (positional[0] && isValidVersion(positional[0])) {
+    explicitVersion = positional[0];
+  }
+  const legacyChannel = explicitVersion ? undefined : positional[0];
+  const legacyBump = explicitVersion ? undefined : positional[1];
+  if (!explicitVersion && positional[2]) otp = otp ?? positional[2];
 
   const pkg = readPkg();
 
-  // 基准版本优先取 npm 远端最新版；查不到（从未发布）则默认 0.0.0
-  const remoteVer = await fetchLatestVersion(pkg.name);
-  const isFirstRelease = remoteVer === null;
-  const oldVer = remoteVer ?? '0.0.0';
-  const newVer = nextVersion(oldVer, channel, bump, isFirstRelease);
+  let channel: Channel;
+  let bump: Bump;
+  let newVer: string;
+  let oldVer: string;
+  let isFirstRelease: boolean;
 
-  if (isFirstRelease) {
-    console.log(`\nℹ️  npm 上未找到 ${pkg.name}，按首发处理（基准版本 ${oldVer}）`);
+  if (explicitVersion) {
+    // 显式版本模式：跳过通道/升级交互，仅做一次确认
+    if (await versionExists(pkg.name, explicitVersion)) {
+      throw new Error(`版本 ${pkg.name}@${explicitVersion} 已被发布过，不能重复发布。请换一个未占用的版本号。`);
+    }
+    channel = channelOfVersion(explicitVersion);
+    bump = 'iteration'; // 仅占位，显式模式下不参与计算
+    oldVer = explicitVersion; // 显示用
+    newVer = explicitVersion;
+    isFirstRelease = false;
+    console.log(`\nℹ️  使用显式版本号 ${explicitVersion}（通道 ${channel}，跳过通道/升级选择）`);
   } else {
-    console.log(`\nℹ️  npm 最新版本 ${oldVer}（本地 ${pkg.version}）`);
+    // 交互 / 旧版非交互模式
+    channel = await pick<Channel>('发布通道 (latest / beta)', CHANNELS, legacyChannel, 'beta');
+    const defaultBump: Bump = channel === 'beta' ? 'iteration' : 'patch';
+    bump = await pick<Bump>('版本升级', BUMPS, legacyBump, defaultBump);
+
+    // 基准版本优先取 npm 远端最新版；查不到（从未发布）则默认 0.0.0
+    const remoteVer = await fetchLatestVersion(pkg.name);
+    isFirstRelease = remoteVer === null;
+    oldVer = remoteVer ?? '0.0.0';
+    newVer = nextVersion(oldVer, channel, bump, isFirstRelease);
+
+    if (isFirstRelease) {
+      console.log(`\nℹ️  npm 上未找到 ${pkg.name}，按首发处理（基准版本 ${oldVer}）`);
+    } else {
+      console.log(`\nℹ️  npm 最新版本 ${oldVer}（本地 ${pkg.version}）`);
+    }
   }
 
   console.log(`\n==============================`);
   console.log(`  当前版本 : ${oldVer}`);
-  console.log(`  发布通道 : ${channel}`);
-  console.log(`  版本升级 : ${bump}`);
+  if (!explicitVersion) console.log(`  发布通道 : ${channel}`);
+  if (!explicitVersion) console.log(`  版本升级 : ${bump}`);
   console.log(`  新版本号 : ${newVer}`);
+  console.log(`  发布通道 : ${channel}`);
   console.log(`==============================`);
 
-  // 确认（非交互且有参数时跳过确认，直接发；否则方向键确认）
-  const skipConfirm = argv.length >= 2;
-  let otp: string | undefined = argv[2]; // 非交互第三位可传 otp
-  if (!skipConfirm) {
-    const { ok } = await inquirer.prompt<{ ok: boolean }>([
-      { type: 'confirm', name: 'ok', message: `确认发布 ${newVer} 到 npm (${channel})?`, default: false },
-    ]);
-    if (!ok) {
-      console.log('已取消。');
-      process.exit(0);
-    }
-    // 交互模式询问 OTP（账号开了 2FA 时需要；可留空）
+  // 确认：显式版本模式只做一次确认；其余模式方向键确认 + 询问 OTP
+  const { ok } = await inquirer.prompt<{ ok: boolean }>([
+    { type: 'confirm', name: 'ok', message: `确认发布 ${newVer} 到 npm (${channel})?`, default: false },
+  ]);
+  if (!ok) {
+    console.log('已取消。');
+    process.exit(0);
+  }
+  if (!otp) {
     const { otpAns } = await inquirer.prompt<{ otpAns: string }>([
       { type: 'input', name: 'otpAns', message: 'OTP（留空跳过，发布时若要求再重试）:' },
     ]);
