@@ -128,7 +128,7 @@ async function onSave(): Promise<void> {
           </template>
           <div
             :class="{ 'alias-item': true, 'field-error': store.erroredAliases.has(a.name) }"
-            style="position: relative; border: 1px solid #eee; border-radius: 8px; padding: 12px 40px 12px 12px; display: flex; flex-direction: column; gap: 8px"
+            style="position: relative; border: 1px solid #eee; border-radius: 8px; padding: 12px 40px 12px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; overflow: hidden"
           >
             <n-tooltip trigger="hover">
               <template #trigger>
@@ -152,19 +152,19 @@ async function onSave(): Promise<void> {
               <span style="font-size: 13px; color: #666">目标模型（顺序即 failover 优先级）</span>
               <n-button size="small" @click="addTargetRow(a)">+ 添加目标</n-button>
             </div>
-            <div v-if="a.targets.length" style="display: flex; flex-direction: column; gap: 6px">
+            <div v-if="a.targets.length" style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
               <div
                 v-for="(t, ti) in a.targets"
                 :key="ti"
-                style="display: flex; align-items: center; gap: 8px; border: 1px solid #eee; border-radius: 6px; padding: 4px 8px"
+                style="display: flex; align-items: center; gap: 6px; min-width: 0; border: 1px solid #eee; border-radius: 6px; padding: 4px 8px"
               >
                 <n-select
                   v-model:value="a.targets[ti]"
                   :options="optionsFor(a, ti)"
                   placeholder="选择提供商下的模型"
-                  style="flex: 1; min-width: 0"
+                  style="flex: 1 1 0; min-width: 0"
                 />
-                <span style="color: #999; font-size: 12px; white-space: nowrap">{{ ti === 0 ? '首选' : `故障转移 ${ti}` }}</span>
+                <span style="flex: none; color: #999; font-size: 12px; white-space: nowrap">{{ ti === 0 ? '首选' : `故障转移 ${ti}` }}</span>
                 <n-button size="tiny" quaternary :disabled="ti === 0" @click="moveTarget(a, ti, -1)">↑</n-button>
                 <n-button size="tiny" quaternary :disabled="ti === a.targets.length - 1" @click="moveTarget(a, ti, 1)">↓</n-button>
                 <n-button size="tiny" quaternary type="error" @click="removeTarget(a, ti)">✕</n-button>
