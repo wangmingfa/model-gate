@@ -61,42 +61,9 @@ agent 侧只需配置一处即可接入：
 - **密钥支持环境变量**：`api_key` 可以写 `${ENV_VAR}` 引用环境变量
 - **Web 配置界面**：`/admin` 下的 SPA（Vite+Vue3+Naive UI），可视化编辑提供商(provider)/别名/密钥/默认模型，保存即校验并热加载；本机回环免登录，非本机访问需 `admin_password` 密码登录；`api_key` 以密码框遮挡显示
 
-## 快速开始
-
-前置：安装 [bun](https://bun.sh/)（运行时依赖，版本 >= 1.0.0）：
-
-```bash
-curl -fsSL https://bun.sh/install | bash
-```
-
-```bash
-# 1. 安装依赖（会同时安装 admin 子项目依赖）
-bun install
-
-# 2. 复制示例配置并编辑（填你的各家 key）
-cp config.example.json config.json
-vim config.json
-
-# 3. 开发模式（api 热重载 + Vite 前端热更新，开箱即用）
-bun run dev
-
-# 3'. 生产构建：内联前端资源并打包成单文件二进制 model-gate.js
-bun run build
-bun run model-gate.js          # 运行构建产物（等同于 node 跑这个 bun 二进制）
-
-# 指定配置文件（开发/生产均可）:
-bun run dev -- --config /path/to/config.json
-# 或设环境变量 MODEL_GATE_CONFIG=/path/to/config.json
-```
-
 ## Web 配置界面（/admin）
 
 不用手改 JSON，浏览器里可视化编辑配置：
-
-```bash
-bun run build   # 构建并内联前端资源（Vite 产物 admin/dist/ → src/admin-assets.generated.ts → 打包进二进制）
-bun run model-gate.js   # 启动网关（或开发模式 bun run dev）
-```
 
 打开浏览器：
 
@@ -108,7 +75,6 @@ bun run model-gate.js   # 启动网关（或开发模式 bun run dev）
 - port / host / timeout 等启动参数只读展示（修改需编辑 config.json 后重启）
 - **访问控制**：本机回环（127.0.0.1/::1）免登录直接进入；**非本机访问需密码登录**——在 config.json 顶层配置 `admin_password`（支持 `${ENV_VAR}` 插值，留空 = 未配置）；未配置时登录页会提示去实际配置文件设置。会话为内存态（24 小时过期，重启失效），登录页提供登出；连续 5 次密码错误锁定 60 秒
 - **安全**：`api_key` 返回真实值，前端以密码框（type=password）遮挡显示，明文不外露；编辑时留空 = 保持原值（不清空原密钥），填新值即覆盖；`admin_password` 不进界面编辑范围，只在配置文件改
-- 开发模式：`bun run dev` 会并行起 Vite dev server（端口 5173，代理 `/admin/api` 到网关）和网关 api，前端改动热更新
 
 启动后服务监听在配置的 `host:port`（默认 `http://127.0.0.1:8787`）。
 
@@ -377,9 +343,50 @@ model:    <config.json 里 aliases 的任意键>
 
 ## 开发
 
+### 本地环境
+
+前置：安装 [bun](https://bun.sh/)（运行时依赖，版本 >= 1.0.0）：
+
 ```bash
-bun test        # 单元测试（config 校验 / failover / SSE 改写 / 鉴权路由；默认忽略 admin/ 前端测试）
-bun run typecheck   # 见下
+curl -fsSL https://bun.sh/install | bash
+```
+
+```bash
+# 1. 安装依赖（会同时安装 admin 子项目依赖）
+bun install
+
+# 2. 复制示例配置并编辑（填你的各家 key）
+cp config.example.json config.json
+vim config.json
+```
+
+### 开发模式
+
+```bash
+bun run dev     # api 热重载 + Vite 前端热更新（并行起 Vite dev server 5173，代理 /admin/api 到网关），开箱即用
+```
+
+### 生产构建
+
+```bash
+bun run build                    # 内联前端资源（Vite 产物 admin/dist/ → src/admin-assets.generated.ts）并打包成单文件二进制 model-gate.js
+bun run model-gate.js            # 运行构建产物（等同于 node 跑这个 bun 二进制）
+```
+
+### 指定配置文件
+
+```bash
+# 任意模式下均可：
+bun run dev -- --config /path/to/config.json
+# 或设环境变量：
+MODEL_GATE_CONFIG=/path/to/config.json bun run dev
+```
+
+### 测试与类型检查
+
+```bash
+bun test            # 单元测试（config 校验 / failover / SSE 改写 / 鉴权路由；默认忽略 admin/ 前端测试）
+bun run typecheck   # 后端 tsc + 前端 vue-tsc
 ```
 
 没有真实上游 key 时，可用仓库自带的本地 mock 做端到端自测：
@@ -389,27 +396,27 @@ bun scripts/mock-upstream.ts   # 起一个 OpenAI 兼容 mock 上游（端口 99
 bun scripts/smoke.ts           # 端到端冒烟：health/models/鉴权/chat 转发/流式/failover/热加载
 ```
 
-目录结构：
+### 发布脚本
+
+- `bun run release [版本号]`：交互式（或显式传版本号）选择 latest/beta 通道与升级方式，自动 build 并发布到 npm，发布成功后自动 commit 版本变更。更多用法见 `scripts/release.ts` 顶部注释。
+- `bun run unpublish [版本号]`：撤销已发布的 npm 版本。不指定版本则列出最近 5 个用方向键选择；默认 `deprecate`（软撤销、安全），可加 `--hard` 真删除（仅发布 72h 内允许）。
+
+### 目录结构
 
 ```
 ├── config.example.json   # 配置示例（复制为 config.json 使用）
 ├── src/
-│   ├── index.ts          # 入口：加载配置、热加载、Bun.serve
+│   ├── index.ts          # 入口：加载配置、热加载、Bun.serve（含 init 子命令）
 │   ├── app.ts            # Hono 路由：鉴权、日志中间件、/v1/* 端点
-│   ├── admin.ts          # /admin 管理后端 API（配置读写、测试连接等）
+│   ├── admin.ts          # /admin 管理后端 API（配置读写、测试连接、用量统计等）
 │   ├── config.ts         # 配置类型、校验、${ENV} 插值
 │   ├── providers.ts      # 上游调用：转发、SSE 改写、failover、超时
 │   ├── logger.ts         # 控制台摘要 + access.log
 │   └── *.test.ts         # 测试
 ├── admin/                # Vue3 + Naive UI 管理前端（Vite 构建）
+├── scripts/              # release / unpublish / mock / smoke 等脚本
 ├── docs/adr/             # 架构决策记录
 └── CONTEXT.md            # 领域词汇表
-```
-
-类型检查（可选）：
-
-```bash
-bun run typecheck
 ```
 
 ## 限制与路线图
