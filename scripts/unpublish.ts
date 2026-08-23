@@ -2,17 +2,17 @@
 /**
  * 撤销已发布的 npm 版本。
  *
- * 两种模式：
- *   1. 默认（软撤销）：npm deprecate <pkg>@<ver> "<msg>"
- *      - 版本仍可被安装，但安装时打印废弃警告；永久可用、安全。
- *   2. --hard（硬撤销）：npm unpublish <pkg>@<ver>
- *      - 真正删除版本；仅限发布后 72 小时内，超时需联系 npm 支持。
+ * 交互选择撤销方式（方向键）：
+ *   - deprecate（软撤销）：npm deprecate <pkg>@<ver> "<msg>"
+ *       版本仍可被安装，但安装时打印废弃警告；永久可用、安全，不影响已依赖该版本的项目。
+ *   - unpublish（硬撤销）：npm unpublish <pkg>@<ver>
+ *       从 registry 彻底移除该版本，不可恢复；仅限发布后 72 小时内，超时需联系 npm 支持。
  *
  * 用法：
- *   bun scripts/unpublish.ts                 # 交互：列出最近 5 个版本用方向键选
- *   bun scripts/unpublish.ts 0.1.1-beta.1    # 指定版本
+ *   bun scripts/unpublish.ts                 # 交互：选版本 + 选撤销方式（带含义说明）
+ *   bun scripts/unpublish.ts 0.1.1-beta.1    # 指定版本，仍交互选撤销方式
+ *   bun scripts/unpublish.ts --hard          # 非交互快捷：直接走 unpublish（跳过方式选择）
  *   bun scripts/unpublish.ts 0.1.1-beta.1 --hard
- *   bun scripts/unpublish.ts --hard          # 交互选版本 + 硬撤销
  *   bun scripts/unpublish.ts 0.1.1-beta.1 --otp 123456
  *
  * 版本列表取 npm registry 上最近发布的 5 个（versions 数组尾部）。
@@ -99,10 +99,35 @@ async function main() {
   console.log(`\n==============================`);
   console.log(`  包名     : ${pkg.name}`);
   console.log(`  目标版本 : ${target}`);
-  console.log(`  撤销方式 : ${hard ? 'hard (unpublish，72h 内)' : 'soft (deprecate，安全)'}`);
   console.log(`==============================`);
 
+  // 选择撤销方式：交互用方向键选（带含义），非交互 --hard 直接走 unpublish
+  let mode: 'deprecate' | 'unpublish';
   if (hard) {
+    mode = 'unpublish';
+  } else {
+    const { m } = await inquirer.prompt<{ m: 'deprecate' | 'unpublish' }>([
+      {
+        type: 'select',
+        name: 'm',
+        message: '选择撤销方式',
+        default: 'deprecate',
+        choices: [
+          {
+            name: 'deprecate（软撤销 / 标记废弃）— 版本仍可被安装，但安装时打印废弃警告；永久可用、安全，不影响已依赖该版本的项目',
+            value: 'deprecate',
+          },
+          {
+            name: 'unpublish（硬撤销 / 真删除）— 从 registry 彻底移除该版本，不可恢复；仅限发布后 72 小时内，超时需联系 npm 支持',
+            value: 'unpublish',
+          },
+        ],
+      },
+    ]);
+    mode = m;
+  }
+
+  if (mode === 'unpublish') {
     const { ok } = await inquirer.prompt<{ ok: boolean }>([
       {
         type: 'confirm',
