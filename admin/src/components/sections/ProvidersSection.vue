@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NDynamicInput, NTag, NIcon, NTooltip } from 'naive-ui';
+import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NDynamicInput, NTag, NIcon } from 'naive-ui';
 import { ServerOutline, SaveOutline } from '@vicons/ionicons5';
 import { useConfigStore, type ProviderRow } from '../../configStore';
+import ItemCard from '../ItemCard.vue';
 
 const store = useConfigStore();
 
@@ -66,34 +67,11 @@ async function onSave(): Promise<void> {
               <span v-if="p.name" style="font-weight: 400; color: #666">（{{ p.name }}）</span>
             </span>
           </template>
-          <div
-            :class="{ 'provider-item': true, 'field-error': store.erroredProviders.has(p.name) }"
-            style="
-              position: relative;
-              border: 1px solid #eee;
-              border-radius: 8px;
-              padding: 12px 40px 12px 12px;
-              margin-bottom: 8px;
-              display: flex;
-              flex-direction: column;
-              gap: 8px;
-            "
+          <ItemCard
+            :error="store.erroredProviders.has(p.name)"
+            remove-tooltip="删除该提供商"
+            @remove="removeProvider(i)"
           >
-            <n-tooltip trigger="hover">
-              <template #trigger>
-                <n-button
-                  size="tiny"
-                  type="error"
-                  quaternary
-                  circle
-                  class="float-del-btn"
-                  @click="removeProvider(i)"
-                >
-                  ✕
-                </n-button>
-              </template>
-              删除该提供商
-            </n-tooltip>
             <div style="display: flex; align-items: baseline; gap: 12px" class="provider-name-row">
               <div style="width: 160px; flex-shrink: 0">
                 <n-form-item label="名称" style="margin-bottom: 0">
@@ -160,11 +138,11 @@ async function onSave(): Promise<void> {
                 {{ store.fetchStates[p.name]?.result }}
               </n-tag>
             </div>
-          </div>
+          </ItemCard>
         </n-collapse-item>
       </n-collapse>
       <n-space justify="space-between">
-        <n-button size="small" @click="addProvider">+ 添加 provider</n-button>
+        <ItemCard add-label="+ 添加 provider" @add="addProvider" />
         <n-button type="primary" :loading="store.saving" @click="onSave">
           <template #icon><n-icon><SaveOutline /></n-icon></template>
           保存
@@ -175,13 +153,6 @@ async function onSave(): Promise<void> {
 </template>
 
 <style>
-/* 删除按钮浮动在提供商卡片右上角，不占用布局空间 */
-.provider-item .float-del-btn {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  z-index: 1;
-}
 @media (max-width: 600px) {
   /* provider 编辑区：移动端名称和 base_url 竖排，base_url 独占一行 */
   .provider-name-row {

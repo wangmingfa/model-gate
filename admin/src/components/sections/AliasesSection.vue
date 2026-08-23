@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
 import type { SelectOption, SelectGroupOption } from 'naive-ui';
-import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NSelect, NIcon, NTooltip, NDynamicInput } from 'naive-ui';
+import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NSelect, NIcon, NDynamicInput } from 'naive-ui';
 import { GitBranchOutline, SaveOutline } from '@vicons/ionicons5';
 import { useConfigStore, type AliasRow } from '../../configStore';
+import ItemCard from '../ItemCard.vue';
 
 const store = useConfigStore();
 
@@ -104,29 +105,15 @@ async function onSave(): Promise<void> {
               <span v-if="a.name" style="font-weight: 400; color: #666">（{{ a.name }}）</span>
             </span>
           </template>
-          <div
-            :class="{ 'alias-item': true, 'field-error': store.erroredAliases.has(a.name) }"
-            style="border: 1px solid #eee; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0"
+          <ItemCard
+            :title="`alias #${i + 1}${a.name ? `（${a.name}）` : ''}`"
+            :error="store.erroredAliases.has(a.name)"
+            remove-tooltip="删除该别名"
+            @remove="removeAlias(i)"
           >
-            <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px">
-              <n-form-item label="别名" style="margin-bottom: 0">
-                <n-input v-model:value="a.name" placeholder="如 fast" style="width: 160px" />
-              </n-form-item>
-              <n-tooltip trigger="hover">
-                <template #trigger>
-                  <n-button
-                    size="tiny"
-                    type="error"
-                    quaternary
-                    circle
-                    @click="removeAlias(i)"
-                  >
-                    ✕
-                  </n-button>
-                </template>
-                删除该别名
-              </n-tooltip>
-            </div>
+            <n-form-item label="别名" style="margin-bottom: 0">
+              <n-input v-model:value="a.name" placeholder="如 fast" style="width: 160px" />
+            </n-form-item>
             <n-form-item style="margin-bottom: 0">
               <template #label>
                 <span style="display: inline-flex; align-items: center; gap: 8px">
@@ -156,11 +143,11 @@ async function onSave(): Promise<void> {
                 </template>
               </n-dynamic-input>
             </n-form-item>
-          </div>
+          </ItemCard>
         </n-collapse-item>
       </n-collapse>
       <n-space justify="space-between">
-        <n-button size="small" @click="addAlias">+ 添加别名</n-button>
+        <ItemCard add-label="+ 添加别名" @add="addAlias" />
         <n-button type="primary" :loading="store.saving" @click="onSave">
           <template #icon><n-icon><SaveOutline /></n-icon></template>
           保存
