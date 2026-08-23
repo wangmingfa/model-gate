@@ -123,7 +123,7 @@ async function onSave(): Promise<void> {
               </template>
               <n-dynamic-input
                 v-model:value="a.targets"
-                :on-create="() => ''"
+                :on-create="() => null"
                 placeholder="选择提供商下的模型"
                 style="width: 100%"
               >
