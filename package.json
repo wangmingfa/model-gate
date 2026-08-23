@@ -39,7 +39,7 @@
     "dev:ui": "cd admin && bun run dev",
     "embed": "bun install --cwd admin && bun run --cwd admin build && bun scripts/embed-assets.ts",
     "build": "bun run embed && bun build src/index.ts --target=bun --outfile model-gate.js",
-    "prepublishOnly": "bun run build",
+    "release": "bun scripts/release.ts",
     "test": "bun test --path-ignore-patterns=admin",
     "typecheck": "bun node_modules/typescript/bin/tsc --noEmit",
     "kill-dev": "bun scripts/kill-dev.mjs"
