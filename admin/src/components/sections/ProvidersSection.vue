@@ -134,13 +134,32 @@ async function onSave(): Promise<void> {
                 {{ store.testStates[p.name]?.result }}
               </n-tag>
             </div>
-            <n-form-item label="模型列表" style="margin-bottom: 0">
+            <n-form-item style="margin-bottom: 0">
+              <template #label>
+                <span style="display: inline-flex; align-items: center; gap: 8px">
+                  模型列表
+                  <n-button
+                    size="tiny"
+                    type="primary"
+                    secondary
+                    :loading="store.fetchStates[p.name]?.fetching"
+                    @click="store.onFetchModels(p)"
+                  >
+                    拉取模型
+                  </n-button>
+                </span>
+              </template>
               <n-dynamic-input v-model:value="p.models" placeholder="模型 id，如 deepseek-chat" style="width: 100%">
                 <template #create-button-default>
                   添加模型
                 </template>
               </n-dynamic-input>
             </n-form-item>
+            <div v-if="store.fetchStates[p.name]?.result" style="font-size: 12px">
+              <n-tag :type="store.fetchStates[p.name]?.ok ? 'success' : 'error'" size="small">
+                {{ store.fetchStates[p.name]?.result }}
+              </n-tag>
+            </div>
           </div>
         </n-collapse-item>
       </n-collapse>

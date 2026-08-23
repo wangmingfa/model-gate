@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
 import type { SelectOption, SelectGroupOption } from 'naive-ui';
-import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NSelect, NIcon, NTooltip } from 'naive-ui';
+import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NSelect, NIcon, NTooltip, NEmpty } from 'naive-ui';
 import { GitBranchOutline, SaveOutline } from '@vicons/ionicons5';
 import { useConfigStore, type AliasRow } from '../../configStore';
 
@@ -45,12 +45,32 @@ function addAlias(): void {
   expandedNames.value.push(id); // 新行默认展开
 }
 
-// 单选级联器桥接：组件返回单个 "provider:model" 字符串，转换进 targets 数组（后端要求 string[]）
-function targetValue(a: AliasRow): string | null {
-  return a.targets.length ? a.targets[0] : null;
+// 单选 select 的临时选中值（每个别名独立，仅作「待添加」缓冲，不写回 targets）
+const pendingTarget = ref<Record<string, string | null>>({});
+function pendingOf(a: AliasRow): string | null {
+  return pendingTarget.value[a._id] ?? null;
 }
-function onTargetChange(a: AliasRow, val: string | null): void {
-  a.targets = val ? [val] : [];
+function onPendingChange(a: AliasRow, val: string | null): void {
+  pendingTarget.value[a._id] = val;
+}
+
+// 添加：把单选 select 当前选中的目标追加进 targets（去重、不覆盖，顺序即 failover 顺序）
+function addTarget(a: AliasRow): void {
+  const val = pendingTarget.value[a._id];
+  if (!val) return;
+  if (!a.targets.includes(val)) a.targets.push(val);
+  pendingTarget.value[a._id] = null; // 添加后清空选择，便于连续添加不同目标
+}
+
+// 已选目标：删除 / 上移 / 下移（failover 顺序由数组顺序决定）
+function removeTarget(a: AliasRow, idx: number): void {
+  a.targets.splice(idx, 1);
+}
+function moveTarget(a: AliasRow, idx: number, dir: -1 | 1): void {
+  const j = idx + dir;
+  if (j < 0 || j >= a.targets.length) return;
+  const arr = a.targets;
+  [arr[idx], arr[j]] = [arr[j], arr[idx]];
 }
 
 // 同 ProvidersSection：load() 异步填充后首次同步草稿
@@ -122,15 +142,32 @@ async function onSave(): Promise<void> {
             <n-form-item label="别名" style="margin-bottom: 0">
               <n-input v-model:value="a.name" placeholder="如 fast" style="width: 160px" />
             </n-form-item>
-            <n-form-item label="目标（先选提供商，再选其下的模型）" style="margin-bottom: 0">
-              <n-select
-                :value="targetValue(a)"
-                :options="providerSelectOptions"
-                placeholder="选择提供商下的模型"
-                style="width: 100%"
-                @update:value="(val: string | null) => onTargetChange(a, val)"
-              />
+            <n-form-item label="添加目标（先选提供商，再选其下的模型，点添加可加多个）" style="margin-bottom: 4px">
+              <div style="display: flex; align-items: center; gap: 8px; width: 100%">
+                <n-select
+                  :value="pendingOf(a)"
+                  :options="providerSelectOptions"
+                  placeholder="选择提供商下的模型"
+                  style="flex: 1; min-width: 0"
+                  @update:value="(val: string | null) => onPendingChange(a, val)"
+                />
+                <n-button size="small" :disabled="!pendingOf(a)" @click="addTarget(a)">+ 添加</n-button>
+              </div>
             </n-form-item>
+            <div v-if="a.targets.length" style="display: flex; flex-direction: column; gap: 6px">
+              <div
+                v-for="(t, ti) in a.targets"
+                :key="t"
+                style="display: flex; align-items: center; gap: 8px; border: 1px solid #eee; border-radius: 6px; padding: 4px 8px"
+              >
+                <span style="flex: 1; font-family: monospace; font-size: 13px">{{ t }}</span>
+                <span style="color: #999; font-size: 12px">{{ ti === 0 ? '首选' : `故障转移 ${ti}` }}</span>
+                <n-button size="tiny" quaternary :disabled="ti === 0" @click="moveTarget(a, ti, -1)">↑</n-button>
+                <n-button size="tiny" quaternary :disabled="ti === a.targets.length - 1" @click="moveTarget(a, ti, 1)">↓</n-button>
+                <n-button size="tiny" quaternary type="error" @click="removeTarget(a, ti)">✕</n-button>
+              </div>
+            </div>
+            <n-empty v-else description="尚未添加目标模型" size="small" style="padding: 8px 0" />
           </div>
         </n-collapse-item>
       </n-collapse>

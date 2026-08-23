@@ -5,6 +5,7 @@ import {
   getConfig,
   saveConfig,
   testConnection,
+  fetchModels,
   generateKey,
   checkConfig,
   type ConfigDraft,
@@ -87,6 +88,8 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
 
   // 测试连接状态：providerName -> { testing, result }
   const testStates = ref<Record<string, { testing: boolean; result: string; ok: boolean }>>({});
+  // 拉取模型状态：providerName -> { fetching, result }（与 testStates 共用错误展示区）
+  const fetchStates = ref<Record<string, { fetching: boolean; result: string; ok: boolean }>>({});
 
   // 行级 ID 生成器（仅前端追踪用，不进配置草稿；provider/alias 共用一个序列即可）
   let rowSeq = 0;
@@ -239,6 +242,47 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
     }
   }
 
+  /** 一键拉取上游模型列表并回填到该 provider 的 models 字段（草稿优先、服务端回退；
+   *  与现有手动添加项去重合并，不覆盖用户已填内容）。无需先保存配置。 */
+  async function onFetchModels(provider: ProviderRow): Promise<void> {
+    if (!provider.base_url.trim()) {
+      message.warning('请先填写 base_url（留空无法拉取）');
+      return;
+    }
+    fetchStates.value[provider.name] = { fetching: true, result: '', ok: false };
+    try {
+      const r = await fetchModels(provider.name, {
+        base_url: provider.base_url,
+        api_key: provider.api_key,
+      });
+      if (!r.ok || !r.models) {
+        fetchStates.value[provider.name] = {
+          fetching: false,
+          ok: false,
+          result: `拉取失败：${r.error ?? `HTTP ${r.status}`}`,
+        };
+        return;
+      }
+      // 去重合并：保留已有 + 追加上游返回的新 id（顺序：已有在前，新查到的在后）
+      const seen = new Set(provider.models);
+      let added = 0;
+      for (const m of r.models) {
+        if (!seen.has(m)) {
+          seen.add(m);
+          provider.models.push(m);
+          added++;
+        }
+      }
+      fetchStates.value[provider.name] = {
+        fetching: false,
+        ok: true,
+        result: added > 0 ? `已拉取并新增 ${added} 个模型（共 ${provider.models.length}）` : `无新增（${provider.models.length} 个模型均已存在）`,
+      };
+    } catch (e) {
+      fetchStates.value[provider.name] = { fetching: false, ok: false, result: (e as Error).message };
+    }
+  }
+
   /** 由当前编辑态构造完整配置草稿（保存用） */
   function buildDraft(): ConfigDraft {
     const providerMap: ConfigDraft['providers'] = {};
@@ -250,7 +294,7 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
     for (const a of aliases.value) {
       if (!a.name) throw new Error('别名名称不能为空');
       // 服务端 aliases 的 value 是 "provider:model" 字符串数组（顺序即 failover 顺序）；
-      // 单选级联器当前只选一个，但保留数组结构以兼容多目标 failover。
+      // 前端用「单选 select + 添加按钮」可加多个目标，数组顺序即 failover 优先级。
       aliasMap[a.name] = a.targets;
     }
     return {
@@ -355,6 +399,7 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
     defaultModelOptions,
     apiBaseUrl,
     testStates,
+    fetchStates,
     // 动作
     load,
     addProvider,
@@ -367,6 +412,7 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
     removeProviderConfirm,
     removeAliasConfirm,
     onTest,
+    onFetchModels,
     autoSave,
     scheduleAutoSave,
     saveSection,

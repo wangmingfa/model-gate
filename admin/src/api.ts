@@ -86,6 +86,27 @@ export function testConnection(
   });
 }
 
+export interface FetchModelsResult {
+  ok: boolean;
+  ms?: number;
+  status?: number | null;
+  error?: string;
+  /** 上游返回的模型 id 列表（ok 为 true 时存在） */
+  models?: string[];
+}
+
+/** 拉取上游模型列表：GET {base_url}/models，解析 OpenAI 标准 data[].id。
+ *  draft 为前端当前未保存的 base_url / api_key，为空则后端回退服务端已保存值。 */
+export function fetchModels(
+  provider: string,
+  draft?: { base_url?: string; api_key?: string },
+): Promise<FetchModelsResult> {
+  return request('/fetch-models', {
+    method: 'POST',
+    body: JSON.stringify({ provider, base_url: draft?.base_url ?? '', api_key: draft?.api_key ?? '' }),
+  });
+}
+
 // ---- 登录 / 登出 / 登录状态 ----
 
 export interface AuthStatus {

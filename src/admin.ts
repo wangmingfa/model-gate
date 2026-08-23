@@ -399,6 +399,66 @@ export function createAdminApp(
     }
   });
 
+  // 拉取上游模型列表：给定 provider 的 base_url / api_key（草稿优先、服务端回退），
+  // GET {base_url}/models，解析 OpenAI 标准 {object:'list', data:[{id,...}]}，返回 id 数组。
+  // 用于管理面板「一键把模型查出来回填」——避免手填模型 id。
+  admin.post('/api/fetch-models', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: { message: '请求体必须是合法 JSON', type: 'invalid_request_error' } }, 400);
+    }
+    const { provider, base_url: draftBaseUrl, api_key: draftApiKey } = (body ?? {}) as {
+      provider?: string;
+      base_url?: string;
+      api_key?: string;
+    };
+    if (typeof provider !== 'string' || !provider) {
+      return c.json({ error: { message: 'provider 必填', type: 'invalid_request_error' } }, 400);
+    }
+    const cfg = getConfig();
+    const saved = cfg.providers[provider];
+
+    const baseUrl = (typeof draftBaseUrl === 'string' && draftBaseUrl.trim()) ? draftBaseUrl.trim() : saved?.base_url;
+    if (!baseUrl) {
+      return c.json(
+        { error: { message: saved ? `provider ${provider} 未配置 base_url` : `未知 provider: ${provider}（未保存则需在表单中填写 base_url）`, type: 'invalid_request_error' } },
+        400,
+      );
+    }
+    const apiKey = (typeof draftApiKey === 'string' && draftApiKey.trim()) ? draftApiKey.trim() : saved?.api_key ?? '';
+
+    const start = Date.now();
+    try {
+      const res = await fetch(`${baseUrl}/models`, {
+        method: 'GET',
+        headers: apiKey ? { authorization: `Bearer ${apiKey}` } : {},
+        signal: AbortSignal.timeout(15000),
+      });
+      const ms = Date.now() - start;
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        return c.json({ ok: false, status: res.status, error: text.slice(0, 500), ms });
+      }
+      const j = (await res.json().catch(() => null)) as { object?: string; data?: unknown[] } | null;
+      const arr = j?.data;
+      if (!Array.isArray(arr)) {
+        return c.json({ ok: false, status: res.status, error: '上游 /models 响应缺少 data 数组（非 OpenAI 兼容格式）', ms });
+      }
+      // 兼容三种写法：{id}, {id:..}, 纯字符串
+      const models = arr
+        .map((m) => (typeof m === 'string' ? m : (m as Record<string, unknown>)?.id))
+        .filter((id): id is string => typeof id === 'string' && id.length > 0);
+      if (models.length === 0) {
+        return c.json({ ok: false, status: res.status, error: '上游 /models 未返回任何模型 id', ms });
+      }
+      return c.json({ ok: true, ms, models });
+    } catch (e) {
+      return c.json({ ok: false, status: null, error: (e as Error).message, ms: Date.now() - start });
+    }
+  });
+
   // 静态托管 admin/dist + SPA fallback（开发模式由 Vite 5173 托管，可不注册）
   if (opts?.includeStatic !== false) {
     const DIST = resolve(import.meta.dir, '../admin/dist');
