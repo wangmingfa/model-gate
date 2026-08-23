@@ -83,16 +83,17 @@ function nextVersion(current: string, channel: Channel, bump: Bump): string {
   return `${maj}.${min}.${pat}`;
 }
 
-function pick<T extends string>(label: string, options: T[], input?: string): T {
+function pick<T extends string>(label: string, options: T[], input: string | undefined, defaultValue: T): T {
   if (input !== undefined) {
     const hit = options.find((o) => o === input);
     if (!hit) throw new Error(`无效的${label}: "${input}"，可选: ${options.join(' / ')}`);
     return hit;
   }
   // 交互选择
-  console.log(`\n请选择 ${label}：`);
-  options.forEach((o, i) => console.log(`  ${i + 1}. ${o}`));
-  const ans = (prompt(`输入序号或名称 (默认 1):`) ?? '1').trim().toLowerCase();
+  console.log(`\n请选择 ${label}：(默认 ${defaultValue})`);
+  options.forEach((o, i) => console.log(`  ${i + 1}. ${o}${o === defaultValue ? '  ◀' : ''}`));
+  const ans = (prompt(`输入序号或名称 (默认 ${defaultValue}):`) ?? '').trim().toLowerCase();
+  if (ans === '') return defaultValue;
   const byIndex = options[Number(ans) - 1];
   if (byIndex) return byIndex;
   const byName = options.find((o) => o === ans);
@@ -109,8 +110,10 @@ async function run(cmd: string, args: string[]): Promise<void> {
 
 async function main() {
   const argv = Bun.argv.slice(2);
-  const channel = pick<Channel>('发布通道', CHANNELS, argv[0]);
-  const bump = pick<Bump>('版本升级', BUMPS, argv[1]);
+  // 通道默认 beta；升级默认随通道：beta→iteration，latest→patch
+  const channel = pick<Channel>('发布通道', CHANNELS, argv[0] ?? undefined, 'beta');
+  const defaultBump: Bump = channel === 'beta' ? 'iteration' : 'patch';
+  const bump = pick<Bump>('版本升级', BUMPS, argv[1] ?? undefined, defaultBump);
 
   const pkg = readPkg();
   const oldVer = pkg.version;
