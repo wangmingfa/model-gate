@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
 import type { SelectOption, SelectGroupOption } from 'naive-ui';
-import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NSelect, NIcon, NTooltip, NEmpty } from 'naive-ui';
+import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NSelect, NIcon, NTooltip, NDynamicInput } from 'naive-ui';
 import { GitBranchOutline, SaveOutline } from '@vicons/ionicons5';
 import { useConfigStore, type AliasRow } from '../../configStore';
 
@@ -55,28 +55,6 @@ function addAlias(): void {
   const id = nextRowId();
   draft.value.push({ _id: id, name: '', targets: [] });
   expandedNames.value.push(id); // 新行默认展开
-}
-
-// 添加目标：往 targets push 一个空占位 ''，由列表内该行的下拉框选择具体模型；
-// 空串会在 onSave 清洗时被过滤掉（不匹配 "provider:model"），未选则不会落盘
-function addTargetRow(a: AliasRow): void {
-  a.targets.push('');
-}
-
-// 下拉选项：已选过（且不是当前这一行）的目标禁用，避免同一别名重复选同一模型
-function optionDisabled(a: AliasRow, val: string, selfIdx: number): boolean {
-  return a.targets.some((t, idx) => t === val && idx !== selfIdx);
-}
-
-// 已选目标：删除 / 上移 / 下移（failover 顺序由数组顺序决定）
-function removeTarget(a: AliasRow, idx: number): void {
-  a.targets.splice(idx, 1);
-}
-function moveTarget(a: AliasRow, idx: number, dir: -1 | 1): void {
-  const j = idx + dir;
-  if (j < 0 || j >= a.targets.length) return;
-  const arr = a.targets;
-  [arr[idx], arr[j]] = [arr[j], arr[idx]];
 }
 
 // 同 ProvidersSection：load() 异步填充后首次同步草稿
@@ -148,32 +126,35 @@ async function onSave(): Promise<void> {
             <n-form-item label="别名" style="margin-bottom: 4px">
               <n-input v-model:value="a.name" placeholder="如 fast" style="width: 160px" />
             </n-form-item>
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px">
-              <span style="font-size: 13px; color: #666">目标模型（顺序即 failover 优先级）</span>
-              <n-button size="small" @click="addTargetRow(a)">+ 添加目标</n-button>
-            </div>
-            <div v-if="a.targets.length" style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
-              <div
-                v-for="(t, ti) in a.targets"
-                :key="ti"
-                style="display: flex; align-items: center; gap: 6px; min-width: 0; border: 1px solid #eee; border-radius: 6px; padding: 4px 8px"
+            <n-form-item style="margin-bottom: 0">
+              <template #label>
+                <span style="display: inline-flex; align-items: center; gap: 8px">
+                  目标模型
+                  <n-tag size="tiny" :bordered="false" type="default">顺序即 failover 优先级</n-tag>
+                </span>
+              </template>
+              <n-dynamic-input
+                v-model:value="a.targets"
+                :on-create="() => ''"
+                placeholder="选择提供商下的模型"
+                style="width: 100%"
               >
-                <div style="flex: 1 1 0; min-width: 0">
-                  <n-select
-                    v-model:value="a.targets[ti]"
-                    :options="optionsFor(a, ti)"
-                    placeholder="选择提供商下的模型"
-                    class="alias-target-select"
-                    style="width: 100%"
-                  />
-                </div>
-                <span style="flex: none; color: #999; font-size: 12px; white-space: nowrap">{{ ti === 0 ? '首选' : `故障转移 ${ti}` }}</span>
-                <n-button size="tiny" quaternary :disabled="ti === 0" @click="moveTarget(a, ti, -1)">↑</n-button>
-                <n-button size="tiny" quaternary :disabled="ti === a.targets.length - 1" @click="moveTarget(a, ti, 1)">↓</n-button>
-                <n-button size="tiny" quaternary type="error" @click="removeTarget(a, ti)">✕</n-button>
-              </div>
-            </div>
-            <n-empty v-else description="尚未添加目标模型，点上方「+ 添加目标」" size="small" style="padding: 8px 0" />
+                <template #default="{ index }">
+                  <div style="flex: 1 1 0; min-width: 0">
+                    <n-select
+                      v-model:value="a.targets[index]"
+                      :options="optionsFor(a, index)"
+                      placeholder="选择提供商下的模型"
+                      class="alias-target-select"
+                      style="width: 100%"
+                    />
+                  </div>
+                </template>
+                <template #create-button-default>
+                  添加目标
+                </template>
+              </n-dynamic-input>
+            </n-form-item>
           </div>
         </n-collapse-item>
       </n-collapse>
