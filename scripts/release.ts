@@ -24,18 +24,38 @@ import inquirer from 'inquirer';
 
 const PKG_PATH = resolve(import.meta.dir, '..', 'package.json');
 
+/**
+ * 从 npm registry 拉取该包已发布的最新版本。
+ * 查不到（404 / 网络错误 / 从未发布）返回 null。
+ */
+async function fetchLatestVersion(name: string): Promise<string | null> {
+  try {
+    const proc = Bun.spawn(['npm', 'view', name, 'version'], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const out = await new Response(proc.stdout).text();
+    const code = await proc.exited;
+    if (code !== 0) return null;
+    const v = out.trim();
+    return /^\d+\.\d+\.\d+/.test(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
 type Channel = 'latest' | 'beta';
 type Bump = 'major' | 'minor' | 'patch' | 'iteration';
 
 const CHANNELS: Channel[] = ['latest', 'beta'];
 const BUMPS: Bump[] = ['major', 'minor', 'patch', 'iteration'];
 
-function readPkg(): { version: string; [k: string]: unknown } {
-  return JSON.parse(readFileSync(PKG_PATH, 'utf-8')) as { version: string };
+function readPkg(): { name: string; version: string; [k: string]: unknown } {
+  return JSON.parse(readFileSync(PKG_PATH, 'utf-8')) as { name: string; version: string };
 }
 
 /** 把版本拆成 { base, pre }，pre 形如 "beta.3" 或 null */
-function parseVersion(v: string): { base: string; pre: string | null; nums: [number, number, number] } {
+export function parseVersion(v: string): { base: string; pre: string | null; nums: [number, number, number] } {
   const m = /^(\d+)\.(\d+)\.(\d+)(?:-(.+))?$/.exec(v);
   if (!m) throw new Error(`无法解析版本号: ${v}`);
   return {
@@ -45,7 +65,7 @@ function parseVersion(v: string): { base: string; pre: string | null; nums: [num
   };
 }
 
-function bumpBase([maj, min, pat]: [number, number, number], bump: Exclude<Bump, 'iteration'>): [number, number, number] {
+export function bumpBase([maj, min, pat]: [number, number, number], bump: Exclude<Bump, 'iteration'>): [number, number, number] {
   switch (bump) {
     case 'major':
       return [maj + 1, 0, 0];
@@ -56,16 +76,26 @@ function bumpBase([maj, min, pat]: [number, number, number], bump: Exclude<Bump,
   }
 }
 
-/** 计算新版本号 */
-function nextVersion(current: string, channel: Channel, bump: Bump): string {
+/**
+ * 计算新版本号。
+ * @param isFirstRelease 远端 registry 查不到该包（从未发布过）。
+ *   首次发布时，stable → beta 不提前升 patch，直接用当前 base 挂 beta.1。
+ */
+export function nextVersion(current: string, channel: Channel, bump: Bump, isFirstRelease = false): string {
   const { nums, pre } = parseVersion(current);
 
   if (channel === 'beta') {
     if (bump === 'iteration') {
-      // 当前已在 beta：迭代号 +1；当前是 stable：切到下一个 patch 的 beta.1
+      // 当前已在 beta：迭代号 +1
       if (pre && pre.startsWith('beta.')) {
         const n = Number(pre.slice('beta.'.length)) || 0;
         return `${nums[0]}.${nums[1]}.${nums[2]}-beta.${n + 1}`;
+      }
+      // 当前是 stable：
+      //   - 首发：直接用当前 base 挂 beta.1（如 0.1.0 → 0.1.0-beta.1）
+      //   - 非首发：切到下一个 patch 的 beta.1（如 0.1.0 → 0.1.1-beta.1）
+      if (isFirstRelease) {
+        return `${nums[0]}.${nums[1]}.${nums[2]}-beta.1`;
       }
       const [maj, min, pat] = bumpBase(nums, 'patch');
       return `${maj}.${min}.${pat}-beta.1`;
@@ -124,8 +154,18 @@ async function main() {
   const bump = await pick<Bump>('版本升级', BUMPS, argv[1] ?? undefined, defaultBump);
 
   const pkg = readPkg();
-  const oldVer = pkg.version;
-  const newVer = nextVersion(oldVer, channel, bump);
+
+  // 基准版本优先取 npm 远端最新版；查不到（从未发布）则默认 0.0.0
+  const remoteVer = await fetchLatestVersion(pkg.name);
+  const isFirstRelease = remoteVer === null;
+  const oldVer = remoteVer ?? '0.0.0';
+  const newVer = nextVersion(oldVer, channel, bump, isFirstRelease);
+
+  if (isFirstRelease) {
+    console.log(`\nℹ️  npm 上未找到 ${pkg.name}，按首发处理（基准版本 ${oldVer}）`);
+  } else {
+    console.log(`\nℹ️  npm 最新版本 ${oldVer}（本地 ${pkg.version}）`);
+  }
 
   console.log(`\n==============================`);
   console.log(`  当前版本 : ${oldVer}`);
@@ -170,7 +210,9 @@ async function main() {
   console.log(`\n🎉 已发布 ${pkg.name}@${newVer} (${channel})`);
 }
 
-main().catch((e) => {
-  console.error(`\n❌ ${e.message}`);
-  process.exit(1);
-});
+if (import.meta.main) {
+  main().catch((e) => {
+    console.error(`\n❌ ${e.message}`);
+    process.exit(1);
+  });
+}
