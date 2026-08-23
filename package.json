@@ -4,7 +4,7 @@
   "type": "module",
   "description": "LLM API 中转网关：配置文件配置多家运营商模型，对外暴露统一 OpenAI 兼容接口",
   "bin": {
-    "model-gate": "./model-gate.js"
+    "model-gate": "model-gate.js"
   },
   "files": [
     "model-gate.js",
@@ -49,6 +49,7 @@
   },
   "devDependencies": {
     "@types/bun": "^1.1.0",
+    "inquirer": "^14.1.0",
     "typescript": "^5.0.0"
   }
 }

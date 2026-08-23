@@ -2,13 +2,14 @@
 /**
  * 一键发布到 npm。
  *
- * 交互流程：
- *   1. 选择发布通道：latest / beta
- *   2. 选择版本升级：major / minor / patch / iteration
- *   3. 自动：写回 package.json version → bun run build → npm publish（beta 带 --tag beta）
+ * 交互流程（inquirer 方向键）：
+ *   1. 选择发布通道：latest / beta（默认 beta）
+ *   2. 选择版本升级：major / minor / patch / iteration（beta 默认 iteration，latest 默认 patch）
+ *   3. 方向键确认发布
+ *   4. 自动：写回 package.json version → bun run build → npm publish（beta 带 --tag beta）
  *
  * 也支持非交互（CI / 脚本调用），直接传参：
- *   bun scripts/release.ts <latest|beta> <major|minor|patch|iteration>
+ *   bun scripts/release.ts <latest|beta> <major|minor|patch|iteration> [otp]
  *
  * 版本规则：
  *   - major / minor / patch 基于当前「基础版本」(去掉 prerelease 后缀) 升级
@@ -19,6 +20,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import inquirer from 'inquirer';
 
 const PKG_PATH = resolve(import.meta.dir, '..', 'package.json');
 
@@ -83,22 +85,28 @@ function nextVersion(current: string, channel: Channel, bump: Bump): string {
   return `${maj}.${min}.${pat}`;
 }
 
-function pick<T extends string>(label: string, options: T[], input: string | undefined, defaultValue: T): T {
+/** 交互选择（inquirer 方向键列表）；非交互时 input 直接命中 */
+async function pick<T extends string>(
+  label: string,
+  options: T[],
+  input: string | undefined,
+  defaultValue: T,
+): Promise<T> {
   if (input !== undefined) {
     const hit = options.find((o) => o === input);
     if (!hit) throw new Error(`无效的${label}: "${input}"，可选: ${options.join(' / ')}`);
     return hit;
   }
-  // 交互选择
-  console.log(`\n请选择 ${label}：(默认 ${defaultValue})`);
-  options.forEach((o, i) => console.log(`  ${i + 1}. ${o}${o === defaultValue ? '  ◀' : ''}`));
-  const ans = (prompt(`输入序号或名称 (默认 ${defaultValue}):`) ?? '').trim().toLowerCase();
-  if (ans === '') return defaultValue;
-  const byIndex = options[Number(ans) - 1];
-  if (byIndex) return byIndex;
-  const byName = options.find((o) => o === ans);
-  if (!byName) throw new Error(`无效的${label}: "${ans}"`);
-  return byName;
+  const { ans } = await inquirer.prompt<{ ans: T }>([
+    {
+      type: 'select',
+      name: 'ans',
+      message: label,
+      choices: options,
+      default: defaultValue,
+    },
+  ]);
+  return ans;
 }
 
 async function run(cmd: string, args: string[]): Promise<void> {
@@ -111,9 +119,9 @@ async function run(cmd: string, args: string[]): Promise<void> {
 async function main() {
   const argv = Bun.argv.slice(2);
   // 通道默认 beta；升级默认随通道：beta→iteration，latest→patch
-  const channel = pick<Channel>('发布通道', CHANNELS, argv[0] ?? undefined, 'beta');
+  const channel = await pick<Channel>('发布通道 (latest / beta)', CHANNELS, argv[0] ?? undefined, 'beta');
   const defaultBump: Bump = channel === 'beta' ? 'iteration' : 'patch';
-  const bump = pick<Bump>('版本升级', BUMPS, argv[1] ?? undefined, defaultBump);
+  const bump = await pick<Bump>('版本升级', BUMPS, argv[1] ?? undefined, defaultBump);
 
   const pkg = readPkg();
   const oldVer = pkg.version;
@@ -126,10 +134,22 @@ async function main() {
   console.log(`  新版本号 : ${newVer}`);
   console.log(`==============================`);
 
-  const confirm = (prompt(`确认发布 ${newVer} 到 npm (${channel})? [y/N]:`) ?? 'n').trim().toLowerCase();
-  if (confirm !== 'y' && confirm !== 'yes') {
-    console.log('已取消。');
-    process.exit(0);
+  // 确认（非交互且有参数时跳过确认，直接发；否则方向键确认）
+  const skipConfirm = argv.length >= 2;
+  let otp: string | undefined = argv[2]; // 非交互第三位可传 otp
+  if (!skipConfirm) {
+    const { ok } = await inquirer.prompt<{ ok: boolean }>([
+      { type: 'confirm', name: 'ok', message: `确认发布 ${newVer} 到 npm (${channel})?`, default: false },
+    ]);
+    if (!ok) {
+      console.log('已取消。');
+      process.exit(0);
+    }
+    // 交互模式询问 OTP（账号开了 2FA 时需要；可留空）
+    const { otpAns } = await inquirer.prompt<{ otpAns: string }>([
+      { type: 'input', name: 'otpAns', message: 'OTP（留空跳过，发布时若要求再重试）:' },
+    ]);
+    otp = otpAns.trim() || undefined;
   }
 
   // 1. 写回版本号
@@ -144,6 +164,7 @@ async function main() {
   const publishArgs = ['publish'];
   if (channel === 'beta') publishArgs.push('--tag', 'beta');
   publishArgs.push('--access', 'public');
+  if (otp) publishArgs.push('--otp', otp);
   await run('npm', publishArgs);
 
   console.log(`\n🎉 已发布 model-gate@${newVer} (${channel})`);
