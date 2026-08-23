@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
-import { statSync, existsSync, writeFileSync } from 'node:fs';
-import { networkInterfaces } from 'node:os';
+import { statSync, existsSync, writeFileSync, readSync } from 'node:fs';
+import { networkInterfaces, homedir } from 'node:os';
+import { resolve } from 'node:path';
 import { loadConfig, ConfigError } from './config';
 import type { Config } from './config';
 import { createApp } from './app';
@@ -9,6 +10,64 @@ import { configureLogging } from './logger';
 function argValue(name: string): string | undefined {
   const i = process.argv.indexOf(name);
   return i >= 0 ? process.argv[i + 1] : undefined;
+}
+
+/** 解析配置路径：相对路径基于 cwd，~ 展开为用户目录；返回绝对路径 */
+function resolveConfigPath(raw: string): string {
+  const expanded = raw.startsWith('~') ? homedir() + raw.slice(1) : raw;
+  return resolve(expanded);
+}
+
+/** 生成一份示例配置文本（首次启动 / init 复用同一份） */
+function buildSampleConfig(): string {
+  const sample = {
+    port: 8787,
+    host: '127.0.0.1',
+    default_model: 'fast',
+    timeout_seconds: 60,
+    access_log: true,
+    keys: [
+      { name: 'Claude', key: 'sk-local-claude', created_at: new Date().toISOString() },
+      { name: 'Cursor', key: 'sk-local-cursor', created_at: new Date().toISOString() },
+    ],
+    admin_password: '',
+    providers: {
+      deepseek: {
+        base_url: 'https://api.deepseek.com/v1',
+        api_key: '${DEEPSEEK_API_KEY}',
+        models: ['deepseek-chat', 'deepseek-reasoner'],
+      },
+      kimi: {
+        base_url: 'https://api.moonshot.cn/v1',
+        api_key: 'sk-your-kimi-key-here',
+        models: ['moonshot-v1-8k', 'moonshot-v1-32k'],
+      },
+    },
+    aliases: {
+      fast: ['deepseek:deepseek-chat', 'kimi:moonshot-v1-8k'],
+      reason: ['deepseek:deepseek-reasoner'],
+    },
+  };
+  return JSON.stringify(sample, null, 2) + '\n';
+}
+
+/** 把示例配置写入 path；失败抛错由调用方处理 */
+function writeSampleConfig(path: string): void {
+  writeFileSync(path, buildSampleConfig(), 'utf-8');
+}
+
+/** 读取一行 stdin（用于 init 的覆盖确认）；非 TTY / 出错时返回空字符串 */
+function readStdinLine(): string {
+  try {
+    if (!process.stdin.isTTY) return '';
+    // 同步读一行（init 是一次性短命令，不会与 server 事件循环冲突）
+    const buf = Buffer.alloc(1024);
+    const n = readSync(0, buf, 0, buf.length, null);
+    if (n === null || n <= 0) return '';
+    return buf.subarray(0, n).toString('utf-8').trim().toLowerCase();
+  } catch {
+    return '';
+  }
 }
 
 /** 本机所有非回环 IPv4 地址（用于 host=0.0.0.0 时提示可访问入口） */
@@ -22,54 +81,48 @@ function localIPv4Addresses(): string[] {
   return out;
 }
 
-const configPath =
+const rawConfigPath =
   argValue('--config') ?? argValue('-c') ?? process.env.MODEL_GATE_CONFIG ?? 'config.json';
+const configPath = resolveConfigPath(rawConfigPath);
 
 // 子命令：model-gate init —— 生成示例配置（全局安装后也能拿到，无需 clone 源码）
 const subcommand = process.argv[2];
 if (subcommand === 'init') {
-  const initConfig = () => {
-    const sample = {
-      port: 8787,
-      host: '127.0.0.1',
-      default_model: 'fast',
-      timeout_seconds: 60,
-      access_log: true,
-      keys: [
-        { name: 'Claude', key: 'sk-local-claude', created_at: new Date().toISOString() },
-        { name: 'Cursor', key: 'sk-local-cursor', created_at: new Date().toISOString() },
-      ],
-      admin_password: '',
-      providers: {
-        deepseek: {
-          base_url: 'https://api.deepseek.com/v1',
-          api_key: '${DEEPSEEK_API_KEY}',
-          models: ['deepseek-chat', 'deepseek-reasoner'],
-        },
-        kimi: {
-          base_url: 'https://api.moonshot.cn/v1',
-          api_key: 'sk-your-kimi-key-here',
-          models: ['moonshot-v1-8k', 'moonshot-v1-32k'],
-        },
-      },
-      aliases: {
-        fast: ['deepseek:deepseek-chat', 'kimi:moonshot-v1-8k'],
-        reason: ['deepseek:deepseek-reasoner'],
-      },
-    };
-    return JSON.stringify(sample, null, 2) + '\n';
-  };
   try {
     if (existsSync(configPath)) {
-      console.error(`[model-gate] 配置已存在，跳过: ${configPath}`);
-      process.exit(0);
+      // 已存在：交互确认是否覆盖（非 TTY / 直接回车 = 不覆盖）
+      const force = process.argv.includes('--force');
+      let overwrite = force;
+      if (!force) {
+        process.stdout.write(
+          `[model-gate] 配置文件已存在: ${configPath}\n[model-gate] 是否覆盖？[y/N] `,
+        );
+        const answer = readStdinLine();
+        overwrite = answer === 'y' || answer === 'yes';
+      }
+      if (!overwrite) {
+        console.log(`[model-gate] 已存在，未覆盖: ${configPath}`);
+        process.exit(0);
+      }
     }
-    writeFileSync(configPath, initConfig(), 'utf-8');
+    writeSampleConfig(configPath);
     console.log(`[model-gate] 已生成示例配置: ${configPath}`);
     console.log(`[model-gate] 编辑它填入你的厂商 key，然后运行 \`model-gate\` 启动`);
     process.exit(0);
   } catch (e) {
     console.error(`[model-gate] 生成配置失败: ${(e as Error).message}`);
+    process.exit(1);
+  }
+}
+
+// 启动 guard：配置文件不存在时，自动生成一份示例并继续启动（零配置开箱即用）
+if (!existsSync(configPath)) {
+  try {
+    writeSampleConfig(configPath);
+    console.log(`[model-gate] 配置文件不存在，已自动生成示例: ${configPath}`);
+    console.log(`[model-gate] 编辑它填入你的厂商 key 后，重启服务即可生效`);
+  } catch (e) {
+    console.error(`[model-gate] 自动生成示例配置失败: ${(e as Error).message}`);
     process.exit(1);
   }
 }
