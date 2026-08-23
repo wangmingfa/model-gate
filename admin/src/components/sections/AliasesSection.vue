@@ -113,7 +113,7 @@ async function onSave(): Promise<void> {
 </script>
 
 <template>
-  <n-card size="small" class="soft-card">
+  <n-card size="small" class="soft-card alias-card">
     <template #header>
       <span class="card-title"><n-icon :size="16"><GitBranchOutline /></n-icon> 模型别名（aliases，agent 只认别名）</span>
     </template>
@@ -128,7 +128,7 @@ async function onSave(): Promise<void> {
           </template>
           <div
             :class="{ 'alias-item': true, 'field-error': store.erroredAliases.has(a.name) }"
-            style="position: relative; border: 1px solid #eee; border-radius: 8px; padding: 12px 40px 12px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; overflow: hidden"
+            style="position: relative; border: 1px solid #eee; border-radius: 8px; padding: 12px 40px 12px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0"
           >
             <n-tooltip trigger="hover">
               <template #trigger>
@@ -162,6 +162,7 @@ async function onSave(): Promise<void> {
                   v-model:value="a.targets[ti]"
                   :options="optionsFor(a, ti)"
                   placeholder="选择提供商下的模型"
+                  class="alias-target-select"
                   style="flex: 1 1 0; min-width: 0"
                 />
                 <span style="flex: none; color: #999; font-size: 12px; white-space: nowrap">{{ ti === 0 ? '首选' : `故障转移 ${ti}` }}</span>
@@ -192,5 +193,18 @@ async function onSave(): Promise<void> {
   top: 6px;
   right: 6px;
   z-index: 1;
+}
+
+/* 别名卡片在移动端不被内部 n-select 长文本撑宽 */
+.alias-card {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* n-select 内部选中的长模型名截断省略，避免撑破布局 */
+.alias-target-select .n-base-selection-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
