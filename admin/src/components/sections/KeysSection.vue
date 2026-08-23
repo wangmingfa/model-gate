@@ -102,7 +102,7 @@ const store = useConfigStore();
 }
 
 /* ---- 移动端适配：窄屏下折成两行（名称+掩码 第一行，时间+操作 第二行）---- */
-@media (max-width: 760px) {
+@media (max-width: 760px) { /* MG-BREAKPOINT */
   .key-row {
     flex-direction: column;
     align-items: stretch;

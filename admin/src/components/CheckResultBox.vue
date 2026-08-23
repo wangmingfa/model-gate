@@ -74,7 +74,7 @@ defineProps<{ issues: ConfigIssue[] | null }>();
   color: #b03a2e;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 760px) { /* MG-BREAKPOINT */
   .check-result {
     margin-bottom: 10px;
     padding: 10px 12px;

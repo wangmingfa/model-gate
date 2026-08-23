@@ -79,7 +79,7 @@ const emit = defineEmits<{ (e: 'update:active', key: string): void }>();
 }
 
 /* ---- 移动端：导航变横向可滚动条，位于内容上方 ---- */
-@media (max-width: 760px) {
+@media (max-width: 760px) { /* MG-BREAKPOINT */
   .section-nav {
     width: 100%;
     position: static;
