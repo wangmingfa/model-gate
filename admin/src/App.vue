@@ -273,7 +273,7 @@ async function onCheckConfig(): Promise<void> {
 }
 
 /* ---- 移动端适配 ---- */
-@media (max-width: 600px) {
+@media (max-width: 760px) {
   /* 充分利用空间：收窄页面边距与卡片间距 */
   .page-wrap {
     padding: 10px;

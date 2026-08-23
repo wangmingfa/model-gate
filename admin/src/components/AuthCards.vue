@@ -198,7 +198,7 @@ const auth = useAuth();
 }
 
 /* 移动端：收紧边距 */
-@media (max-width: 600px) {
+@media (max-width: 760px) {
   .auth-screen {
     padding: 16px;
   }

@@ -74,7 +74,7 @@ defineProps<{ issues: ConfigIssue[] | null }>();
   color: #b03a2e;
 }
 
-@media (max-width: 600px) {
+@media (max-width: 760px) {
   .check-result {
     margin-bottom: 10px;
     padding: 10px 12px;

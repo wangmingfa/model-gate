@@ -153,7 +153,7 @@ async function onSave(): Promise<void> {
 </template>
 
 <style>
-@media (max-width: 600px) {
+@media (max-width: 760px) {
   /* provider 编辑区：移动端名称和 base_url 竖排，base_url 独占一行 */
   .provider-name-row {
     flex-direction: column;
