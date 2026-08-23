@@ -211,27 +211,32 @@ async function onCheckConfig(): Promise<void> {
   gap: 6px;
 }
 
-/* 编辑区容器：底部留白 */
+/* 编辑区容器：底部留白；min-width:0 防止内部 flex 内容撑宽整个 block */
 .editor-content {
   padding-bottom: 24px;
+  min-width: 0;
 }
 
-/* 页面外层容器：分版块后左侧导航占宽，整体放宽到 980px；移动端收窄（见媒体查询） */
+/* 页面外层容器：分版块后左侧导航占宽，整体放宽到 1200px；移动端收窄（见媒体查询）
+   overflow-x:hidden 兜底，避免内部任何溢出撑出页面横向滚动 */
 .page-wrap {
-  max-width: 980px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 24px;
+  overflow-x: hidden;
 }
 /* 登录态：清零外层 padding，避免与 .auth-screen 的 100dvh 叠加溢出屏幕 */
 .page-wrap--auth {
   padding: 0;
+  max-width: none;
 }
 
-/* 分版块布局：左侧导航 + 右侧内容 */
+/* 分版块布局：左侧导航 + 右侧内容；min-width:0 让 flex 子项可正确收缩 */
 .section-layout {
   display: flex;
   gap: 20px;
   align-items: flex-start;
+  min-width: 0;
 }
 .section-body {
   flex: 1;
