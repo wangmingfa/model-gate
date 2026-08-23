@@ -106,26 +106,27 @@ async function onSave(): Promise<void> {
           </template>
           <div
             :class="{ 'alias-item': true, 'field-error': store.erroredAliases.has(a.name) }"
-            style="position: relative; border: 1px solid #eee; border-radius: 8px; padding: 12px 40px 12px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0"
+            style="border: 1px solid #eee; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0"
           >
-            <n-tooltip trigger="hover">
-              <template #trigger>
-                <n-button
-                  size="tiny"
-                  type="error"
-                  quaternary
-                  circle
-                  class="float-del-btn"
-                  @click="removeAlias(i)"
-                >
-                  ✕
-                </n-button>
-              </template>
-              删除该别名
-            </n-tooltip>
-            <n-form-item label="别名" style="margin-bottom: 4px">
-              <n-input v-model:value="a.name" placeholder="如 fast" style="width: 160px" />
-            </n-form-item>
+            <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px">
+              <n-form-item label="别名" style="margin-bottom: 0">
+                <n-input v-model:value="a.name" placeholder="如 fast" style="width: 160px" />
+              </n-form-item>
+              <n-tooltip trigger="hover">
+                <template #trigger>
+                  <n-button
+                    size="tiny"
+                    type="error"
+                    quaternary
+                    circle
+                    @click="removeAlias(i)"
+                  >
+                    ✕
+                  </n-button>
+                </template>
+                删除该别名
+              </n-tooltip>
+            </div>
             <n-form-item style="margin-bottom: 0">
               <template #label>
                 <span style="display: inline-flex; align-items: center; gap: 8px">
@@ -170,14 +171,6 @@ async function onSave(): Promise<void> {
 </template>
 
 <style>
-/* 删除按钮浮动在别名卡片右上角，不占用布局空间 */
-.alias-item .float-del-btn {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  z-index: 1;
-}
-
 /* 别名卡片在移动端不被内部 n-select 长文本撑宽 */
 .alias-card {
   min-width: 0;
