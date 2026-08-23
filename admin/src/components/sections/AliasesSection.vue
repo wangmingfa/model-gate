@@ -158,13 +158,15 @@ async function onSave(): Promise<void> {
                 :key="ti"
                 style="display: flex; align-items: center; gap: 6px; min-width: 0; border: 1px solid #eee; border-radius: 6px; padding: 4px 8px"
               >
-                <n-select
-                  v-model:value="a.targets[ti]"
-                  :options="optionsFor(a, ti)"
-                  placeholder="选择提供商下的模型"
-                  class="alias-target-select"
-                  style="flex: 1 1 0; min-width: 0"
-                />
+                <div style="flex: 1 1 0; min-width: 0">
+                  <n-select
+                    v-model:value="a.targets[ti]"
+                    :options="optionsFor(a, ti)"
+                    placeholder="选择提供商下的模型"
+                    class="alias-target-select"
+                    style="width: 100%"
+                  />
+                </div>
                 <span style="flex: none; color: #999; font-size: 12px; white-space: nowrap">{{ ti === 0 ? '首选' : `故障转移 ${ti}` }}</span>
                 <n-button size="tiny" quaternary :disabled="ti === 0" @click="moveTarget(a, ti, -1)">↑</n-button>
                 <n-button size="tiny" quaternary :disabled="ti === a.targets.length - 1" @click="moveTarget(a, ti, 1)">↓</n-button>
