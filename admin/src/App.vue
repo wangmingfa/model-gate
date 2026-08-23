@@ -27,7 +27,7 @@ import AliasesSection from './components/sections/AliasesSection.vue';
 const store = provideConfigStore();
 
 // 内联品牌 logo（拱门=网关，菱形节点=模型，输入汇聚→统一出口），避免打包器解析外部资源路径
-const logoSvg = `<svg viewBox="0 0 256 256" width="38" height="38" xmlns="http://www.w3.org/2000/svg" aria-label="model-gate logo">
+const logoSvg = `<svg viewBox="0 0 256 256" width="38" height="38" xmlns="http://www.w3.org/2000/svg" aria-label="Model Gate logo">
   <defs>
     <linearGradient id="mg-g" x1="32" y1="32" x2="224" y2="224" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#6366F1"/><stop offset="0.55" stop-color="#8B5CF6"/><stop offset="1" stop-color="#D946EF"/>
@@ -120,7 +120,7 @@ async function onCheckConfig(): Promise<void> {
         <div class="hero-left">
           <div class="hero-logo" v-html="logoSvg"></div>
           <div>
-            <h2 style="margin: 0">model-gate 配置</h2>
+            <h2 style="margin: 0">Model Gate 配置</h2>
             <p style="margin: 2px 0 0; font-size: 12px; opacity: 0.85">
               config.json 是唯一真相源 · 改动即时保存 + 热加载生效
             </p>

@@ -13,7 +13,7 @@ const auth = useAuth();
       <!-- 品牌区：logo + 标题 + 副标题 -->
       <div class="auth-brand">
         <div class="auth-logo">
-          <svg viewBox="0 0 256 256" width="40" height="40" xmlns="http://www.w3.org/2000/svg" aria-label="model-gate logo">
+          <svg viewBox="0 0 256 256" width="40" height="40" xmlns="http://www.w3.org/2000/svg" aria-label="Model Gate logo">
             <defs>
               <linearGradient id="mg-g" x1="32" y1="32" x2="224" y2="224" gradientUnits="userSpaceOnUse">
                 <stop offset="0" stop-color="#6366F1"/><stop offset="0.55" stop-color="#8B5CF6"/><stop offset="1" stop-color="#D946EF"/>
@@ -35,7 +35,7 @@ const auth = useAuth();
             <path d="M128 156 L128 192" stroke="#ffffff" stroke-width="11" stroke-linecap="round" opacity="0.9"/>
           </svg>
         </div>
-        <h1 class="auth-title">model-gate</h1>
+        <h1 class="auth-title">Model Gate</h1>
         <p class="auth-subtitle">OpenAI 兼容 API 网关 · 管理面板</p>
       </div>
 

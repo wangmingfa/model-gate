@@ -36,6 +36,6 @@ describe('App 挂载', () => {
     await wrapper.vm.$nextTick();
     await new Promise((r) => setTimeout(r, 10)); // 等 onMounted 的 fetch 完成
     expect(wrapper.exists()).toBe(true);
-    expect(wrapper.text()).toContain('model-gate 配置');
+    expect(wrapper.text()).toContain('Model Gate 配置');
   });
 });
