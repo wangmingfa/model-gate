@@ -167,7 +167,7 @@ async function main() {
   if (otp) publishArgs.push('--otp', otp);
   await run('npm', publishArgs);
 
-  console.log(`\n🎉 已发布 model-gate@${newVer} (${channel})`);
+  console.log(`\n🎉 已发布 ${pkg.name}@${newVer} (${channel})`);
 }
 
 main().catch((e) => {
