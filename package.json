@@ -14,12 +14,32 @@
   "engines": {
     "bun": ">=1.0.0"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wangmingfa/model-gate.git"
+  },
+  "homepage": "https://github.com/wangmingfa/model-gate#readme",
+  "bugs": {
+    "url": "https://github.com/wangmingfa/model-gate/issues"
+  },
+  "keywords": [
+    "llm",
+    "gateway",
+    "openai",
+    "proxy",
+    "api",
+    "load-balance",
+    "failover"
+  ],
+  "author": "wangmingfa",
+  "license": "MIT",
   "scripts": {
     "dev": "bun run --parallel dev:api dev:ui",
     "dev:api": "MODEL_GATE_DEV=1 NODE_ENV=development bun scripts/ensure-admin-assets.ts && bun --watch src/index.ts",
     "dev:ui": "cd admin && bun run dev",
     "embed": "bun install --cwd admin && bun run --cwd admin build && bun scripts/embed-assets.ts",
     "build": "bun run embed && bun build src/index.ts --target=bun --outfile model-gate.js",
+    "prepublishOnly": "bun run build",
     "test": "bun test --path-ignore-patterns=admin",
     "typecheck": "bun node_modules/typescript/bin/tsc --noEmit",
     "kill-dev": "bun scripts/kill-dev.mjs"
