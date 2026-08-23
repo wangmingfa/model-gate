@@ -241,6 +241,7 @@ async function onCheckConfig(): Promise<void> {
 .section-body {
   flex: 1;
   min-width: 0;
+  width: 100%;
 }
 
 /* 体检出错的字段：红色边框 + 柔和红光，直观定位问题处（供各版块共用） */
