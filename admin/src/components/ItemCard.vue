@@ -1,28 +1,24 @@
 <script setup lang="ts">
 import { NButton, NTooltip } from 'naive-ui';
 
-// 统一的列表项卡片：负责外框样式、右上角浮动删除按钮、可选的底部「添加」按钮。
-// 内容通过 #default 插槽传入；删除 emit 'remove'，添加 emit 'add'。
+// 统一的列表项卡片：负责外框样式 + 右上角浮动删除按钮。
+// 内容通过 #default 插槽传入；删除 emit 'remove'。
+// 注意：新增整项的「添加」按钮不属于卡片，由使用方在列表末尾自行放置。
 defineProps<{
   title?: string;
   error?: boolean;
-  // 底部添加按钮文案；不传则不显示添加按钮（用于纯展示/单个 item）
-  addLabel?: string;
   // 删除按钮的 tooltip 文案
   removeTooltip?: string;
-  // 添加按钮是否为主要样式（primary）
-  addPrimary?: boolean;
 }>();
 
 const emit = defineEmits<{
   (e: 'remove'): void;
-  (e: 'add'): void;
 }>();
 </script>
 
 <template>
   <div :class="{ 'item-card': true, 'field-error': !!error }">
-    <n-tooltip v-if="!addLabel" trigger="hover">
+    <n-tooltip trigger="hover">
       <template #trigger>
         <n-button
           size="tiny"
@@ -42,12 +38,6 @@ const emit = defineEmits<{
 
     <div class="item-card-body">
       <slot />
-    </div>
-
-    <div v-if="addLabel" class="item-card-footer">
-      <n-button size="small" :type="addPrimary ? 'primary' : 'default'" @click="emit('add')">
-        {{ addLabel }}
-      </n-button>
     </div>
   </div>
 </template>
@@ -84,8 +74,5 @@ const emit = defineEmits<{
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-.item-card-footer {
-  margin-top: 8px;
 }
 </style>

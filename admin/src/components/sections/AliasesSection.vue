@@ -147,7 +147,7 @@ async function onSave(): Promise<void> {
         </n-collapse-item>
       </n-collapse>
       <n-space justify="space-between">
-        <ItemCard add-label="+ 添加别名" @add="addAlias" />
+        <n-button size="small" @click="addAlias">+ 添加别名</n-button>
         <n-button type="primary" :loading="store.saving" @click="onSave">
           <template #icon><n-icon><SaveOutline /></n-icon></template>
           保存
