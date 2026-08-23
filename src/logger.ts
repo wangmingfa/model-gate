@@ -46,6 +46,11 @@ export function configureLogging(enabled: boolean, path?: string): void {
   if (path) accessPath = path;
 }
 
+/** 暴露当前 access.log 路径，供 /api/stats 等统计接口读取 */
+export function getAccessLogPath(): string {
+  return accessPath;
+}
+
 /** 追加一条 JSONL 记录到 access.log；写入失败静默（不拖垮请求） */
 export function writeAccessLog(r: LogRecord): void {
   if (!accessEnabled) return;

@@ -10,6 +10,7 @@ import {
   LinkOutline,
   PersonCircleOutline,
   CheckmarkCircleOutline,
+  BarChartOutline,
 } from '@vicons/ionicons5';
 import { createAuth, authKey } from './useAuth';
 import { provideConfigStore, sectionOfTarget } from './configStore';
@@ -22,6 +23,7 @@ import BasicSection from './components/sections/BasicSection.vue';
 import KeysSection from './components/sections/KeysSection.vue';
 import ProvidersSection from './components/sections/ProvidersSection.vue';
 import AliasesSection from './components/sections/AliasesSection.vue';
+import StatsSection from './components/sections/StatsSection.vue';
 
 // 共享编辑态：创建一次，provide 给各版块子组件（message/dialog 在此绑定）
 const store = provideConfigStore();
@@ -68,7 +70,7 @@ function onUserMenuSelect(key: string): void {
 
 /** ---- 分版块导航：左侧切换，一次只看一个版块，缩短页面 ---- */
 // hash 路由：刷新/分享链接可保留当前选中的版块（如 #providers）
-const SECTION_KEYS = ['access', 'basic', 'keys', 'providers', 'aliases'] as const;
+const SECTION_KEYS = ['access', 'basic', 'keys', 'providers', 'aliases', 'stats'] as const;
 function sectionFromHash(): string {
   const h = location.hash.replace(/^#/, '');
   return (SECTION_KEYS as readonly string[]).includes(h) ? h : 'access';
@@ -96,6 +98,7 @@ const sections = computed<SectionItem[]>(() => [
   { key: 'keys', label: '下游密钥', icon: markRaw(KeyOutline), count: store.keys.length },
   { key: 'providers', label: '提供商', icon: markRaw(ServerOutline), count: store.providers.length },
   { key: 'aliases', label: '模型别名', icon: markRaw(GitBranchOutline), count: store.aliases.length },
+  { key: 'stats', label: '用量统计', icon: markRaw(BarChartOutline) },
 ]);
 
 /** 检查配置正确性：体检在 store 里做（标红/报告），这里负责跳到第一个出错项所在版块 */
@@ -162,6 +165,7 @@ async function onCheckConfig(): Promise<void> {
             <div v-show="activeSection === 'keys'"><KeysSection /></div>
             <div v-show="activeSection === 'providers'"><ProvidersSection /></div>
             <div v-show="activeSection === 'aliases'"><AliasesSection /></div>
+            <div v-show="activeSection === 'stats'"><StatsSection /></div>
           </div><!-- /section-body -->
         </div><!-- /section-layout -->
       </template>

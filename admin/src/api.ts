@@ -126,3 +126,39 @@ export function login(password: string): Promise<{ ok: true }> {
 export function logout(): Promise<{ ok: true }> {
   return request('/logout', { method: 'POST' });
 }
+
+// ---- 用量统计 ----
+
+export interface StatsOverview {
+  requests: number;
+  success: number;
+  failures: number;
+  successRate: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  p95Ms: number;
+}
+
+export interface StatsRow {
+  key: string;
+  requests: number;
+  failures: number;
+  successRate: number;
+  tokens: number;
+  p95Ms: number;
+}
+
+export interface StatsResponse {
+  rangeDays: number;
+  generatedAt: string;
+  overview: StatsOverview;
+  byAlias: StatsRow[];
+  byKey: StatsRow[];
+  byDay: StatsRow[];
+}
+
+/** 拉取用量统计：仅聚合 /v1/chat/completions 真实流量 */
+export function getStats(days = 30): Promise<StatsResponse> {
+  return request(`/stats?days=${days}`);
+}

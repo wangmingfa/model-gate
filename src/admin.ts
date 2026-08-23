@@ -1,11 +1,12 @@
 import { Hono } from 'hono';
 import type { Context, Next } from 'hono';
-import { readFileSync, writeFileSync, renameSync } from 'node:fs';
+import { readFileSync, writeFileSync, renameSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { Config } from './config';
 import { validateConfig, checkConfig } from './config';
 import { adminAssets } from './admin-assets.generated';
+import { getAccessLogPath } from './logger';
 
 /** 回环检查所需的 Bun server 形态（app.fetch(req, server) 时 c.env = server） */
 export interface LoopbackEnv {
@@ -463,6 +464,124 @@ export function createAdminApp(
     } catch (e) {
       return c.json({ ok: false, status: null, error: (e as Error).message, ms: Date.now() - start });
     }
+  });
+
+  // 用量统计：读取 access.log 聚合（仅统计 /v1/chat/completions 真实流量）
+  interface Agg {
+    req: number;
+    fail: number;
+    tokens: number;
+    latencies: number[];
+  }
+  function bump(m: Map<string, Agg>, k: string, d: { req: number; fail: number; tokens: number; ms: number }): void {
+    const cur = m.get(k) ?? { req: 0, fail: 0, tokens: 0, latencies: [] as number[] };
+    cur.req += d.req;
+    cur.fail += d.fail;
+    cur.tokens += d.tokens;
+    if (d.ms >= 0) cur.latencies.push(d.ms);
+    m.set(k, cur);
+  }
+  function percentile(arr: number[], p: number): number {
+    if (arr.length === 0) return 0;
+    const sorted = [...arr].sort((a, b) => a - b);
+    const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1));
+    return sorted[idx];
+  }
+
+  admin.get('/api/stats', (c) => {
+    const days = Number(c.req.query('days') ?? '30');
+    const rangeDays = Number.isFinite(days) && days > 0 ? Math.min(days, 365) : 30;
+    const sinceMs = Date.now() - rangeDays * 24 * 60 * 60 * 1000;
+
+    const path = getAccessLogPath();
+    let lines: string[] = [];
+    try {
+      if (existsSync(path)) lines = readFileSync(path, 'utf-8').split('\n');
+    } catch {
+      lines = [];
+    }
+
+    // 聚合容器
+    let totalReq = 0;
+    let successReq = 0;
+    let failReq = 0;
+    let totalPrompt = 0;
+    let totalCompletion = 0;
+    let totalTokens = 0;
+    const latencies: number[] = [];
+    const byAlias = new Map<string, Agg>();
+    const byKey = new Map<string, Agg>();
+    const byDay = new Map<string, Agg>();
+
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line) continue;
+      let r: Record<string, unknown>;
+      try {
+        r = JSON.parse(line) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      // 只统计真实的 chat 流量（token 字段只在这里有意义）
+      if (r.path !== '/v1/chat/completions') continue;
+      const ts = typeof r.ts === 'string' ? Date.parse(r.ts) : NaN;
+      if (!Number.isFinite(ts) || ts < sinceMs) continue;
+
+      const status = Number(r.status ?? 0);
+      const ms = Number(r.ms ?? 0);
+      const isFail = status === 0 || status >= 400;
+      totalReq++;
+      if (isFail) failReq++;
+      else successReq++;
+      latencies.push(ms);
+
+      const pt = Number(r.promptTokens ?? 0) || 0;
+      const ct = Number(r.completionTokens ?? 0) || 0;
+      const tt = Number(r.totalTokens ?? 0) || pt + ct;
+      totalPrompt += pt;
+      totalCompletion += ct;
+      totalTokens += tt;
+
+      const alias = (r.alias as string) || '(unknown)';
+      const key = (r.key as string) || '(unknown)';
+      const day = new Date(ts).toISOString().slice(0, 10); // YYYY-MM-DD
+
+      bump(byAlias, alias, { req: 1, fail: isFail ? 1 : 0, tokens: tt, ms });
+      bump(byKey, key, { req: 1, fail: isFail ? 1 : 0, tokens: tt, ms });
+      bump(byDay, day, { req: 1, fail: isFail ? 1 : 0, tokens: tt, ms });
+    }
+
+    // p95 延迟
+    const p95 = percentile(latencies, 0.95);
+    const toArr = (m: Map<string, Agg>) =>
+      [...m.entries()]
+        .map(([k, v]) => ({
+          key: k,
+          requests: v.req,
+          failures: v.fail,
+          successRate: v.req > 0 ? +((1 - v.fail / v.req) * 100).toFixed(2) : 100,
+          tokens: v.tokens,
+          p95Ms: percentile(v.latencies, 0.95),
+        }))
+        .sort((a, b) => b.requests - a.requests);
+
+    return c.json({
+      rangeDays,
+      generatedAt: new Date().toISOString(),
+      overview: {
+        requests: totalReq,
+        success: successReq,
+        failures: failReq,
+        successRate: totalReq > 0 ? +((1 - failReq / totalReq) * 100).toFixed(2) : 100,
+        promptTokens: totalPrompt,
+        completionTokens: totalCompletion,
+        totalTokens,
+        p95Ms: p95,
+      },
+      byAlias: toArr(byAlias),
+      byKey: toArr(byKey),
+      byDay: toArr(byDay).sort((a, b) => (a.key < b.key ? -1 : 1)),
+    });
   });
 
   // 静态托管 admin/dist + SPA fallback（开发模式由 Vite 5173 托管，可不注册）
