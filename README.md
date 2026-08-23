@@ -6,13 +6,17 @@ LLM API 中转网关：在一个配置文件里配置多家运营商的模型（
 
 ## 安装
 
-model-gate 基于 [bun](https://bun.sh/) 运行时，推荐用 bun 全局安装（npm 亦可）：
+model-gate 基于 [bun](https://bun.sh/) 运行时，推荐用 bun 全局安装（npm 亦可）。
+
+**方式一：bun（推荐）**
 
 ```bash
-# 方式一：bun（推荐）
 bun install -g @wangmingfa/model-gate
+```
 
-# 方式二：npm
+**方式二：npm**
+
+```bash
 npm install -g @wangmingfa/model-gate
 ```
 
