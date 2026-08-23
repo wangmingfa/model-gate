@@ -127,7 +127,7 @@ async function onSave(): Promise<void> {
                   </n-button>
                 </span>
               </template>
-              <n-dynamic-input v-model:value="p.models" placeholder="模型 id，如 deepseek-chat" style="width: 100%">
+              <n-dynamic-input v-model:value="p.models" :show-sort-button="true" placeholder="模型 id，如 deepseek-chat" style="width: 100%">
                 <template #create-button-default>
                   添加模型
                 </template>

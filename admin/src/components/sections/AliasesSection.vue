@@ -124,6 +124,7 @@ async function onSave(): Promise<void> {
               <n-dynamic-input
                 v-model:value="a.targets"
                 :on-create="() => null"
+                :show-sort-button="true"
                 placeholder="选择提供商下的模型"
                 style="width: 100%"
               >
