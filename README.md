@@ -4,6 +4,50 @@ LLM API 中转网关：在一个配置文件里配置多家运营商的模型（
 
 **解决什么问题**：你有很多 coding agent（Claude Code、Cursor、各种开源 agent），每个都要单独配置各家厂商的 base_url、api_key、模型名。有了 model-gate，agent 只认一个地址 + 一个 key + 一组**模型别名**；换上游、换模型、加厂商都只改网关的配置文件，热加载即生效，agent 侧零改动。
 
+## 安装
+
+model-gate 基于 [bun](https://bun.sh/) 运行时，推荐用 bun 全局安装（npm 亦可）：
+
+```bash
+# 方式一：bun（推荐）
+bun install -g @wangmingfa/model-gate
+
+# 方式二：npm
+npm install -g @wangmingfa/model-gate
+```
+
+> 安装后会得到一个全局命令 `model-gate`（无需 clone 源码、无需 `bun install` 依赖）。
+
+## 使用
+
+```bash
+# 1. 生成示例配置（在当前目录创建 config.json）
+model-gate init
+
+# 2. 编辑配置，填入你的各家厂商 key（见下文「配置」章节）
+vim config.json
+
+# 3. 启动网关（默认监听 127.0.0.1:8787，按 config.json 热加载）
+model-gate
+```
+
+启动后：
+
+- 网关地址：`http://127.0.0.1:8787`
+- OpenAI 兼容接口：`POST http://127.0.0.1:8787/v1/chat/completions`、`GET http://127.0.0.1:8787/v1/models`
+- Web 配置界面：`http://127.0.0.1:8787/admin`（本机回环免登录，非本机需 `admin_password`）
+
+agent 侧只需配置一处即可接入：
+
+```jsonc
+// 以任意 OpenAI 兼容 client 为例
+{
+  "base_url": "http://127.0.0.1:8787/v1",
+  "api_key": "<你在 /admin 里生成的下游密钥>",
+  "model": "fast"   // 模型别名，不暴露真实模型名
+}
+```
+
 ---
 
 ## 特性

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { statSync } from 'node:fs';
+import { statSync, existsSync, writeFileSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { loadConfig, ConfigError } from './config';
 import type { Config } from './config';
@@ -24,6 +24,55 @@ function localIPv4Addresses(): string[] {
 
 const configPath =
   argValue('--config') ?? argValue('-c') ?? process.env.MODEL_GATE_CONFIG ?? 'config.json';
+
+// 子命令：model-gate init —— 生成示例配置（全局安装后也能拿到，无需 clone 源码）
+const subcommand = process.argv[2];
+if (subcommand === 'init') {
+  const initConfig = () => {
+    const sample = {
+      port: 8787,
+      host: '127.0.0.1',
+      default_model: 'fast',
+      timeout_seconds: 60,
+      access_log: true,
+      keys: [
+        { name: 'Claude', key: 'sk-local-claude', created_at: new Date().toISOString() },
+        { name: 'Cursor', key: 'sk-local-cursor', created_at: new Date().toISOString() },
+      ],
+      admin_password: '',
+      providers: {
+        deepseek: {
+          base_url: 'https://api.deepseek.com/v1',
+          api_key: '${DEEPSEEK_API_KEY}',
+          models: ['deepseek-chat', 'deepseek-reasoner'],
+        },
+        kimi: {
+          base_url: 'https://api.moonshot.cn/v1',
+          api_key: 'sk-your-kimi-key-here',
+          models: ['moonshot-v1-8k', 'moonshot-v1-32k'],
+        },
+      },
+      aliases: {
+        fast: ['deepseek:deepseek-chat', 'kimi:moonshot-v1-8k'],
+        reason: ['deepseek:deepseek-reasoner'],
+      },
+    };
+    return JSON.stringify(sample, null, 2) + '\n';
+  };
+  try {
+    if (existsSync(configPath)) {
+      console.error(`[model-gate] 配置已存在，跳过: ${configPath}`);
+      process.exit(0);
+    }
+    writeFileSync(configPath, initConfig(), 'utf-8');
+    console.log(`[model-gate] 已生成示例配置: ${configPath}`);
+    console.log(`[model-gate] 编辑它填入你的厂商 key，然后运行 \`model-gate\` 启动`);
+    process.exit(0);
+  } catch (e) {
+    console.error(`[model-gate] 生成配置失败: ${(e as Error).message}`);
+    process.exit(1);
+  }
+}
 
 let cfg: Config;
 try {
