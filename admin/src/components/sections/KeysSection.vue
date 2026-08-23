@@ -73,7 +73,9 @@ const store = useConfigStore();
   </n-modal>
 </template>
 
-<style>
+<style lang="scss">
+@use '../../styles/breakpoint' as *;
+
 /* ---- 密钥列表行：默认一行（名称+掩码 与 时间+操作 并排），移动端才折成两行 ---- */
 .key-add-row {
   flex-wrap: wrap;
@@ -102,7 +104,7 @@ const store = useConfigStore();
 }
 
 /* ---- 移动端适配：窄屏下折成两行（名称+掩码 第一行，时间+操作 第二行）---- */
-@media (max-width: 760px) { /* MG-BREAKPOINT */
+@media (max-width: $mg-breakpoint) {
   .key-row {
     flex-direction: column;
     align-items: stretch;

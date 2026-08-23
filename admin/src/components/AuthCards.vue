@@ -75,7 +75,9 @@ const auth = useAuth();
   </div>
 </template>
 
-<style>
+<style lang="scss">
+@use '../styles/breakpoint' as *;
+
 /* 全屏渐变背景 + 居中。
    用 min-height:100dvh（而非 fixed）跟随动态视口，避免 fixed 在移动端
    软键盘/地址栏伸缩时的整体抖动。关键：本层 padding:0，且登录态时父级
@@ -198,7 +200,7 @@ const auth = useAuth();
 }
 
 /* 移动端：收紧边距 */
-@media (max-width: 760px) { /* MG-BREAKPOINT */
+@media (max-width: $mg-breakpoint) {
   .auth-screen {
     padding: 16px;
   }

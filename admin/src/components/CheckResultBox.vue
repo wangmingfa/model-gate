@@ -29,7 +29,9 @@ defineProps<{ issues: ConfigIssue[] | null }>();
   </div>
 </template>
 
-<style>
+<style lang="scss">
+@use '../styles/breakpoint' as *;
+
 /* 检查配置正确性结果框 */
 .check-result {
   border: 1px solid #e3e8ef;
@@ -74,7 +76,7 @@ defineProps<{ issues: ConfigIssue[] | null }>();
   color: #b03a2e;
 }
 
-@media (max-width: 760px) { /* MG-BREAKPOINT */
+@media (max-width: $mg-breakpoint) {
   .check-result {
     margin-bottom: 10px;
     padding: 10px 12px;

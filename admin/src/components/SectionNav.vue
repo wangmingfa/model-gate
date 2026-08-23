@@ -29,7 +29,9 @@ const emit = defineEmits<{ (e: 'update:active', key: string): void }>();
   </aside>
 </template>
 
-<style>
+<style lang="scss">
+@use '../styles/breakpoint' as *;
+
 /* ---- 分版块导航：左侧列表 ---- */
 .section-nav {
   width: 168px;
@@ -79,7 +81,7 @@ const emit = defineEmits<{ (e: 'update:active', key: string): void }>();
 }
 
 /* ---- 移动端：导航变横向可滚动条，位于内容上方 ---- */
-@media (max-width: 760px) { /* MG-BREAKPOINT */
+@media (max-width: $mg-breakpoint) {
   .section-nav {
     width: 100%;
     position: static;

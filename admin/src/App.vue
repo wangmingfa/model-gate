@@ -171,13 +171,9 @@ async function onCheckConfig(): Promise<void> {
   </div>
 </template>
 
-<style>
-/* ============================================================
- * 移动端断点常量（纯 CSS 无法把媒体查询阈值抽成 var()，故集中标注）
- * 全项目移动端断点统一为 760px。修改时请全局搜索锚点：
- *   @media (max-width: 760px)  /* MG-BREAKPOINT *​/
- * 共 6 处：App / AuthCards / CheckResultBox / SectionNav / ProvidersSection / KeysSection
- * ============================================================ */
+<style lang="scss">
+@use './styles/breakpoint' as *;
+
 .hero-header {
   display: flex;
   justify-content: space-between;
@@ -278,7 +274,7 @@ async function onCheckConfig(): Promise<void> {
 }
 
 /* ---- 移动端适配 ---- */
-@media (max-width: 760px) { /* MG-BREAKPOINT */
+@media (max-width: $mg-breakpoint) {
   /* 充分利用空间：收窄页面边距与卡片间距 */
   .page-wrap {
     padding: 10px;
