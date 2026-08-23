@@ -14,7 +14,7 @@ interface ModelOption extends SelectOption {
   provider?: string;
   model?: string;
 }
-const providerSelectOptions = computed<(SelectOption | SelectGroupOption)[]>(() => {
+const baseModelOptions = computed<(SelectOption | SelectGroupOption)[]>(() => {
   const list = store.providers.length ? store.providers : draft.value;
   return list
     .filter((p) => p.name && p.models.length)
@@ -27,6 +27,18 @@ const providerSelectOptions = computed<(SelectOption | SelectGroupOption)[]>(() 
       })) as ModelOption[],
     }));
 });
+
+// 带禁用标记的副本：已选过（且不是当前这一行）的目标禁用，避免同一别名重复选同一模型
+function optionsFor(a: AliasRow, selfIdx: number): (SelectOption | SelectGroupOption)[] {
+  const taken = new Set(a.targets.filter((t, idx) => idx !== selfIdx && t));
+  return (baseModelOptions.value as SelectGroupOption[]).map((g) => ({
+    ...g,
+    children: (g.children as ModelOption[]).map((c) => ({
+      ...c,
+      disabled: taken.has(c.value as string),
+    })),
+  }));
+}
 
 // 本地草稿：深拷贝，编辑不实时落盘；点「保存」才写回 store 并落盘
 const draft = ref<AliasRow[]>(JSON.parse(JSON.stringify(store.aliases)));
@@ -45,21 +57,15 @@ function addAlias(): void {
   expandedNames.value.push(id); // 新行默认展开
 }
 
-// 单选 select 的临时选中值（每个别名独立，仅作「待添加」缓冲，不写回 targets）
-const pendingTarget = ref<Record<string, string | null>>({});
-function pendingOf(a: AliasRow): string | null {
-  return pendingTarget.value[a._id] ?? null;
-}
-function onPendingChange(a: AliasRow, val: string | null): void {
-  pendingTarget.value[a._id] = val;
+// 添加目标：往 targets push 一个空占位 ''，由列表内该行的下拉框选择具体模型；
+// 空串会在 onSave 清洗时被过滤掉（不匹配 "provider:model"），未选则不会落盘
+function addTargetRow(a: AliasRow): void {
+  a.targets.push('');
 }
 
-// 添加：把单选 select 当前选中的目标追加进 targets（去重、不覆盖，顺序即 failover 顺序）
-function addTarget(a: AliasRow): void {
-  const val = pendingTarget.value[a._id];
-  if (!val) return;
-  if (!a.targets.includes(val)) a.targets.push(val);
-  pendingTarget.value[a._id] = null; // 添加后清空选择，便于连续添加不同目标
+// 下拉选项：已选过（且不是当前这一行）的目标禁用，避免同一别名重复选同一模型
+function optionDisabled(a: AliasRow, val: string, selfIdx: number): boolean {
+  return a.targets.some((t, idx) => t === val && idx !== selfIdx);
 }
 
 // 已选目标：删除 / 上移 / 下移（failover 顺序由数组顺序决定）
@@ -139,35 +145,32 @@ async function onSave(): Promise<void> {
               </template>
               删除该别名
             </n-tooltip>
-            <n-form-item label="别名" style="margin-bottom: 0">
+            <n-form-item label="别名" style="margin-bottom: 4px">
               <n-input v-model:value="a.name" placeholder="如 fast" style="width: 160px" />
             </n-form-item>
-            <n-form-item label="添加目标（先选提供商，再选其下的模型，点添加可加多个）" style="margin-bottom: 4px">
-              <div style="display: flex; align-items: center; gap: 8px; width: 100%">
-                <n-select
-                  :value="pendingOf(a)"
-                  :options="providerSelectOptions"
-                  placeholder="选择提供商下的模型"
-                  style="flex: 1; min-width: 0"
-                  @update:value="(val: string | null) => onPendingChange(a, val)"
-                />
-                <n-button size="small" :disabled="!pendingOf(a)" @click="addTarget(a)">+ 添加</n-button>
-              </div>
-            </n-form-item>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px">
+              <span style="font-size: 13px; color: #666">目标模型（顺序即 failover 优先级）</span>
+              <n-button size="small" @click="addTargetRow(a)">+ 添加目标</n-button>
+            </div>
             <div v-if="a.targets.length" style="display: flex; flex-direction: column; gap: 6px">
               <div
                 v-for="(t, ti) in a.targets"
-                :key="t"
+                :key="ti"
                 style="display: flex; align-items: center; gap: 8px; border: 1px solid #eee; border-radius: 6px; padding: 4px 8px"
               >
-                <span style="flex: 1; font-family: monospace; font-size: 13px">{{ t }}</span>
-                <span style="color: #999; font-size: 12px">{{ ti === 0 ? '首选' : `故障转移 ${ti}` }}</span>
+                <n-select
+                  v-model:value="a.targets[ti]"
+                  :options="optionsFor(a, ti)"
+                  placeholder="选择提供商下的模型"
+                  style="flex: 1; min-width: 0"
+                />
+                <span style="color: #999; font-size: 12px; white-space: nowrap">{{ ti === 0 ? '首选' : `故障转移 ${ti}` }}</span>
                 <n-button size="tiny" quaternary :disabled="ti === 0" @click="moveTarget(a, ti, -1)">↑</n-button>
                 <n-button size="tiny" quaternary :disabled="ti === a.targets.length - 1" @click="moveTarget(a, ti, 1)">↓</n-button>
                 <n-button size="tiny" quaternary type="error" @click="removeTarget(a, ti)">✕</n-button>
               </div>
             </div>
-            <n-empty v-else description="尚未添加目标模型" size="small" style="padding: 8px 0" />
+            <n-empty v-else description="尚未添加目标模型，点上方「+ 添加目标」" size="small" style="padding: 8px 0" />
           </div>
         </n-collapse-item>
       </n-collapse>
