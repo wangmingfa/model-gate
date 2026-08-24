@@ -30,6 +30,34 @@ import inquirer from 'inquirer';
 const PKG_PATH = resolve(import.meta.dir, '..', 'package.json');
 
 /**
+ * 轻量终端 spinner：执行异步任务期间显示旋转动画 + 文案，
+ * 完成后用 ✔（成功）或 ✗（失败）收尾并换行。不依赖任何第三方库。
+ */
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+async function withSpinner<T>(text: string, fn: () => Promise<T>): Promise<T> {
+  if (!process.stdout.isTTY) {
+    // 非交互终端（CI / 管道）：只打印静态提示，不做动画
+    process.stdout.write(`⏳ ${text}...\n`);
+    return await fn();
+  }
+  let frame = 0;
+  const timer = setInterval(() => {
+    process.stdout.write(`\r${SPINNER_FRAMES[frame % SPINNER_FRAMES.length]} ${text}...`);
+    frame++;
+  }, 100);
+  try {
+    const result = await fn();
+    clearInterval(timer);
+    process.stdout.write(`\r✔ ${text}\n`);
+    return result;
+  } catch (e) {
+    clearInterval(timer);
+    process.stdout.write(`\r✗ ${text}\n`);
+    throw e;
+  }
+}
+
+/**
  * 从 npm registry 拉取该包已发布的最新版本。
  * 查不到（404 / 网络错误 / 从未发布）返回 null。
  */
@@ -215,7 +243,7 @@ async function main() {
 
   if (explicitVersion) {
     // 显式版本模式：跳过通道/升级交互，仅做一次确认
-    if (await versionExists(pkg.name, explicitVersion)) {
+    if (await withSpinner(`查询 npm 上 ${pkg.name}@${explicitVersion} 是否已发布`, () => versionExists(pkg.name, explicitVersion))) {
       throw new Error(`版本 ${pkg.name}@${explicitVersion} 已被发布过，不能重复发布。请换一个未占用的版本号。`);
     }
     channel = channelOfVersion(explicitVersion);
@@ -231,7 +259,7 @@ async function main() {
     bump = await pick<Bump>('版本升级', BUMPS, legacyBump, defaultBump);
 
     // 基准版本优先取 npm 远端最新版；查不到（从未发布）则默认 0.0.0
-    const remoteVer = await fetchLatestVersion(pkg.name);
+    const remoteVer = await withSpinner(`查询 npm 上 ${pkg.name} 的最新版本`, () => fetchLatestVersion(pkg.name));
     isFirstRelease = remoteVer === null;
     oldVer = remoteVer ?? '0.0.0';
     newVer = nextVersion(oldVer, channel, bump, isFirstRelease);
