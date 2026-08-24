@@ -58,23 +58,51 @@ async function withSpinner<T>(text: string, fn: () => Promise<T>): Promise<T> {
 }
 
 /**
- * 从 npm registry 拉取该包已发布的最新版本。
- * 查不到（404 / 网络错误 / 从未发布）返回 null。
+ * 从 npm registry 拉取该包「当前通道」已发布的最新版本（按 semver 取最大）。
+ * - channel=beta：只看带 prerelease 后缀的版本（如 x.y.z-beta.N），取最大
+ * - channel=latest：只看 stable 版本（无后缀），取最大
+ * 该通道没有任何已发布版本（含从未发布）返回 null。
+ * 注意：不能用 `npm view <pkg> version`（它只看 latest dist-tag，会漏掉 beta 版本）。
  */
-async function fetchLatestVersion(name: string): Promise<string | null> {
+async function fetchLatestVersion(name: string, channel: Channel): Promise<string | null> {
   try {
-    const proc = Bun.spawn(['npm', 'view', name, 'version'], {
+    const proc = Bun.spawn(['npm', 'view', name, 'versions', '--json'], {
       stdout: 'pipe',
       stderr: 'pipe',
     });
     const out = await new Response(proc.stdout).text();
     const code = await proc.exited;
     if (code !== 0) return null;
-    const v = out.trim();
-    return /^\d+\.\d+\.\d+/.test(v) ? v : null;
+    let versions: string[];
+    try {
+      const parsed = JSON.parse(out);
+      versions = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return null;
+    }
+    const isPre = (v: string) => /-\w/.test(v);
+    const inChannel = channel === 'beta' ? isPre : (v: string) => !isPre(v);
+    const candidates = versions.filter(inChannel).sort((a, b) => cmpSemver(a, b));
+    return candidates.length ? candidates[candidates.length - 1] : null;
   } catch {
     return null;
   }
+}
+
+/** 简单 semver 比较：a < b 返回负数，a === b 返回 0，a > b 返回正数 */
+function cmpSemver(a: string, b: string): number {
+  const pa = a.split('-')[0].split('.').map(Number);
+  const pb = b.split('-')[0].split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) - (pb[i] ?? 0);
+  }
+  // base 相同：比较 prerelease（无后缀 > 有后缀；同为后缀按字典序）
+  const preA = a.includes('-') ? a.split('-')[1] : null;
+  const preB = b.includes('-') ? b.split('-')[1] : null;
+  if (preA === null && preB === null) return 0;
+  if (preA === null) return 1;
+  if (preB === null) return -1;
+  return preA < preB ? -1 : preA > preB ? 1 : 0;
 }
 
 /** 校验字符串是否合法 semver（允许 -prerelease 后缀） */
@@ -258,16 +286,31 @@ async function main() {
     const defaultBump: Bump = channel === 'beta' ? 'iteration' : 'patch';
     bump = await pick<Bump>('版本升级', BUMPS, legacyBump, defaultBump);
 
-    // 基准版本优先取 npm 远端最新版；查不到（从未发布）则默认 0.0.0
-    const remoteVer = await withSpinner(`查询 npm 上 ${pkg.name} 的最新版本`, () => fetchLatestVersion(pkg.name));
+    // 基准版本取 npm 远端「当前通道」最新版；查不到（从未发布 / 该通道无版本）则默认 0.0.0
+    const remoteVer = await withSpinner(`查询 npm 上 ${pkg.name} 在 ${channel} 通道的最新版本`, () => fetchLatestVersion(pkg.name, channel));
     isFirstRelease = remoteVer === null;
     oldVer = remoteVer ?? '0.0.0';
     newVer = nextVersion(oldVer, channel, bump, isFirstRelease);
 
+    // 校验算出的新版本是否已被占用（交互模式此前未校验，会直接 publish 撞墙）
+    // 若已占用：beta 通道的 iteration 自动顺延 +1，直到找到一个未占用版本；其他情况报错让用户重跑
+    if (await versionExists(pkg.name, newVer)) {
+      if (channel === 'beta' && bump === 'iteration') {
+        let guard = 0;
+        while (await versionExists(pkg.name, newVer)) {
+          newVer = nextVersion(newVer, channel, 'iteration', false);
+          if (++guard > 50) throw new Error('iteration 顺延超过 50 次仍被占用，请检查 npm 版本历史');
+        }
+        console.log(`\n⚠️  ${oldVer} 的下一版已被占用，已自动顺延到 ${newVer}`);
+      } else {
+        throw new Error(`版本 ${pkg.name}@${newVer} 已被发布过（npm 上已存在）。请换一个未占用的版本号，或用 beta+iteration 自动顺延。`);
+      }
+    }
+
     if (isFirstRelease) {
-      console.log(`\nℹ️  npm 上未找到 ${pkg.name}，按首发处理（基准版本 ${oldVer}）`);
+      console.log(`\nℹ️  npm 上未找到 ${pkg.name}（${channel} 通道），按首发处理（基准版本 ${oldVer}）`);
     } else {
-      console.log(`\nℹ️  npm 最新版本 ${oldVer}（本地 ${pkg.version}）`);
+      console.log(`\nℹ️  npm ${channel} 通道最新版本 ${oldVer}（本地 ${pkg.version}）`);
     }
   }
 
