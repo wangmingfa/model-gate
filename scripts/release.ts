@@ -233,6 +233,34 @@ async function run(cmd: string, args: string[]): Promise<void> {
   if (code !== 0) throw new Error(`命令失败 (exit ${code}): ${cmd} ${args.join(' ')}`);
 }
 
+/**
+ * 发布前确保已登录 npm。未登录 / 登录态失效时：
+ *   - 交互终端：自动执行 `npm login`，等待用户完成浏览器/凭证登录后再继续
+ *   - 非交互环境：明确提示需要先自行登录，直接退出
+ * 登录成功后再次校验，确保后续 publish 不会因未登录而 404 / ENEEDAUTH。
+ */
+async function ensureNpmLogin(): Promise<void> {
+  const whoami = await Bun.spawn(['npm', 'whoami'], { stdout: 'pipe', stderr: 'pipe' });
+  const code = await whoami.exited;
+  if (code === 0) {
+    const user = (await new Response(whoami.stdout).text()).trim();
+    console.log(`\n✔ npm 已登录: ${user}`);
+    return;
+  }
+  console.log(`\n⚠️  未检测到 npm 登录态（或登录已失效），发布需要先登录`);
+  if (!process.stdin.isTTY) {
+    throw new Error('当前非交互终端无法执行 npm login，请先在终端运行 `npm login` 后再重试。');
+  }
+  console.log(`请完成 npm 登录（会打开浏览器 / 输入凭证）：`);
+  await run('npm', ['login']);
+  // 登录后再次确认
+  const recheck = await Bun.spawn(['npm', 'whoami'], { stdout: 'pipe', stderr: 'pipe' });
+  if ((await recheck.exited) !== 0) {
+    throw new Error('npm login 未完成或失败，请检查登录状态后重试。');
+  }
+  console.log(`✔ npm 登录成功: ${(await new Response(recheck.stdout).text()).trim()}`);
+}
+
 async function main() {
   const argv = Bun.argv.slice(2);
 
@@ -336,6 +364,9 @@ async function main() {
     ]);
     otp = otpAns.trim() || undefined;
   }
+
+  // 发布前确认 npm 登录态：未登录（或登录态失效）时引导登录，避免 publish 时 404 / ENEEDAUTH
+  await ensureNpmLogin();
 
   // 1. 写回版本号
   pkg.version = newVer;
