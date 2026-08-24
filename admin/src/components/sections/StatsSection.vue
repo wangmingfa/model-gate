@@ -172,6 +172,10 @@ const hasData = computed(() => (data.value?.overview.requests ?? 0) > 0);
 @use '../../styles/breakpoint' as *;
 
 .stat-box {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 55%, #d946ef 100%);
   color: #fff;
   border-radius: 12px;
