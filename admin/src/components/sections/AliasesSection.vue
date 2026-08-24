@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue';
+import { ref, watch, computed, onMounted } from 'vue';
 import type { SelectOption, SelectGroupOption } from 'naive-ui';
-import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NSelect, NIcon, NDynamicInput } from 'naive-ui';
+import {
+  NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NSelect, NIcon, NDynamicInput, NTag,
+} from 'naive-ui';
 import { GitBranchOutline, SaveOutline } from '@vicons/ionicons5';
 import { useConfigStore, type AliasRow } from '../../configStore';
+import { getAliasStatus, type AliasStatus } from '../../api';
 import ItemCard from '../ItemCard.vue';
 
 const store = useConfigStore();
@@ -58,6 +61,29 @@ function addAlias(): void {
   expandedNames.value.push(id); // 新行默认展开
 }
 
+// 每个别名「当前实际生效」模型（来自 access.log 最近一次成功请求）
+const statusMap = ref<Record<string, AliasStatus>>({});
+async function loadAliasStatus(): Promise<void> {
+  try {
+    const res = await getAliasStatus();
+    const m: Record<string, AliasStatus> = {};
+    for (const s of res.aliases) m[s.name] = s;
+    statusMap.value = m;
+  } catch {
+    statusMap.value = {};
+  }
+}
+onMounted(loadAliasStatus);
+
+// 每个别名：主选（targets[0]）= 标「主选」；其余 = failover 备选
+function statusOf(a: AliasRow): AliasStatus | undefined {
+  return a.name ? statusMap.value[a.name] : undefined;
+}
+function isPrimaryHit(a: AliasRow): boolean {
+  const st = statusOf(a);
+  return !!st && !!a.targets[0] && st.activeModel === a.targets[0];
+}
+
 // 同 ProvidersSection：load() 异步填充后首次同步草稿
 watch(
   () => store.aliases,
@@ -88,6 +114,8 @@ async function onSave(): Promise<void> {
   await store.saveSection({ successMsg: '模型别名已保存' });
   // 同步草稿：失败也不丢内容——saveSection 不再 load 回滚，store.aliases 仍是刚写入的草稿拷贝
   draft.value = JSON.parse(JSON.stringify(store.aliases));
+  // 别名名可能变化，刷新实际生效状态
+  loadAliasStatus();
 }
 </script>
 
@@ -144,6 +172,32 @@ async function onSave(): Promise<void> {
                 </template>
               </n-dynamic-input>
             </n-form-item>
+            <n-form-item style="margin-bottom: 0">
+              <template #label>
+                <span style="display: inline-flex; align-items: center; gap: 8px">
+                  当前实际生效
+                  <n-tag size="tiny" :bordered="false" type="default">来自最近一次成功请求</n-tag>
+                </span>
+              </template>
+              <div v-if="statusOf(a)" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+                <span
+                  class="status-dot"
+                  :style="{ background: isPrimaryHit(a) ? '#18a058' : '#f0a020' }"
+                ></span>
+                <code style="font-size: 13px">{{ statusOf(a)!.activeModel }}</code>
+                <n-tag
+                  size="tiny"
+                  :bordered="false"
+                  :type="isPrimaryHit(a) ? 'success' : 'warning'"
+                >
+                  {{ isPrimaryHit(a) ? '主选命中' : '已 failover 到备选' }}
+                </n-tag>
+                <span style="color: #999; font-size: 12px">
+                  {{ statusOf(a)!.lastSuccessTs ? statusOf(a)!.lastSuccessTs.replace('T', ' ').slice(0, 19) : '' }}
+                </span>
+              </div>
+              <span v-else style="color: #999; font-size: 13px">暂无成功请求记录</span>
+            </n-form-item>
           </ItemCard>
         </n-collapse-item>
       </n-collapse>
@@ -170,5 +224,14 @@ async function onSave(): Promise<void> {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 实际生效状态点 */
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
 }
 </style>

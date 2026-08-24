@@ -584,6 +584,44 @@ export function createAdminApp(
     });
   });
 
+  // 每个别名「最近一次成功请求」实际生效的模型（反映 failover 实际落点）
+  admin.get('/api/alias-status', (c) => {
+    const path = getAccessLogPath();
+    let lines: string[] = [];
+    try {
+      if (existsSync(path)) lines = readFileSync(path, 'utf-8').split('\n');
+    } catch {
+      lines = [];
+    }
+    // access.log 按时间追加，后面的记录更新；每个别名只保留最近一次成功的 realModel
+    const latest = new Map<string, { model: string; ts: string }>();
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line) continue;
+      let r: Record<string, unknown>;
+      try {
+        r = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (r.path !== '/v1/chat/completions') continue;
+      const status = Number(r.status ?? 0);
+      if (status === 0 || status >= 400) continue; // 仅统计成功请求
+      const alias = (r.alias as string) ?? '';
+      const model = (r.realModel as string) ?? '';
+      if (!alias || !model) continue;
+      latest.set(alias, { model, ts: typeof r.ts === 'string' ? r.ts : '' });
+    }
+    return c.json({
+      generatedAt: new Date().toISOString(),
+      aliases: [...latest.entries()].map(([name, v]) => ({
+        name,
+        activeModel: v.model,
+        lastSuccessTs: v.ts,
+      })),
+    });
+  });
+
   // 静态托管 admin/dist + SPA fallback（开发模式由 Vite 5173 托管，可不注册）
   if (opts?.includeStatic !== false) {
     const DIST = resolve(import.meta.dir, '../admin/dist');

@@ -63,6 +63,20 @@ export function checkConfig(): Promise<{ ok: true; issues: ConfigIssue[] }> {
   return request('/config/check', { method: 'POST' });
 }
 
+/** 别名实际生效模型状态：每个别名最近一次成功请求用到的真实模型 */
+export interface AliasStatus {
+  name: string;
+  /** 最近一次成功请求实际生效的 "provider:model" */
+  activeModel: string;
+  /** 该次请求的时间戳（ISO） */
+  lastSuccessTs: string;
+}
+
+/** 拉取每个别名「当前实际生效」的模型（来自 access.log 最近一次成功请求） */
+export function getAliasStatus(): Promise<{ generatedAt: string; aliases: AliasStatus[] }> {
+  return request('/alias-status');
+}
+
 export function saveConfig(draft: ConfigDraft): Promise<{ ok: true }> {
   return request('/config', { method: 'PUT', body: JSON.stringify(draft) });
 }
