@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
-import { statSync, existsSync, writeFileSync, readSync } from 'node:fs';
+import { statSync, existsSync, writeFileSync, readSync, realpathSync, readFileSync } from 'node:fs';
 import { networkInterfaces, homedir } from 'node:os';
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
 import { loadConfig, ConfigError } from './config';
 import type { Config } from './config';
 import { createApp } from './app';
@@ -10,6 +10,67 @@ import { configureLogging } from './logger';
 function argValue(name: string): string | undefined {
   const i = process.argv.indexOf(name);
   return i >= 0 ? process.argv[i + 1] : undefined;
+}
+
+/** 获取 package.json 中的版本号（兼容开发模式与打包后的全局二进制） */
+function getPackageVersion(): string {
+  try {
+    let scriptPath = process.argv[1];
+    if (scriptPath && existsSync(scriptPath)) {
+      scriptPath = realpathSync(scriptPath);
+    }
+    const scriptDir = scriptPath ? dirname(scriptPath) : '.';
+    const candidates = [
+      resolve(scriptDir, 'package.json'),
+      resolve(scriptDir, '..', 'package.json'),
+    ];
+    for (const p of candidates) {
+      if (existsSync(p)) {
+        return JSON.parse(readFileSync(p, 'utf-8')).version || 'unknown';
+      }
+    }
+  } catch {
+    // 忽略：返回 unknown
+  }
+  return 'unknown';
+}
+
+const CLI_HELP = `
+Model Gate ${getPackageVersion()} — LLM API 中转网关
+
+用法:
+  model-gate                          启动网关（默认监听 127.0.0.1:8787）
+  model-gate init                     生成示例 config.json
+  model-gate upgrade                  升级到最新 stable 版本
+  model-gate upgrade@beta             升级到最新 beta 版本
+
+选项:
+  -h, --help                          显示此帮助信息
+  -v, --version                       显示版本号
+  -c, --config <path>                 指定配置文件（默认 config.json）
+      --force                         与 init 一起使用，强制覆盖已有配置
+
+环境变量:
+  MODEL_GATE_CONFIG                   指定配置文件路径
+  MODEL_GATE_DEV=1                    开发模式（不内嵌 admin 前端资源）
+`.trim();
+
+function printHelp(): void {
+  console.log(CLI_HELP);
+}
+
+function printVersion(): void {
+  console.log(`model-gate ${getPackageVersion()}`);
+}
+
+const subcommand = process.argv[2];
+if (subcommand === '-h' || subcommand === '--help') {
+  printHelp();
+  process.exit(0);
+}
+if (subcommand === '-v' || subcommand === '--version') {
+  printVersion();
+  process.exit(0);
 }
 
 /** 解析配置路径：相对路径基于 cwd，~ 展开为用户目录；返回绝对路径 */
@@ -86,7 +147,6 @@ const rawConfigPath =
 const configPath = resolveConfigPath(rawConfigPath);
 
 // 子命令：model-gate init —— 生成示例配置（全局安装后也能拿到，无需 clone 源码）
-const subcommand = process.argv[2];
 if (subcommand === 'init') {
   try {
     if (existsSync(configPath)) {

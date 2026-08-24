@@ -39,14 +39,26 @@ model-gate
 <summary>其他命令</summary>
 
 ```bash
+# 显示帮助信息
+model-gate -h
+model-gate --help
+
+# 显示版本号
+model-gate -v
+model-gate --version
+
 # 升级到最新 stable 版本
 model-gate upgrade
 
 # 升级到最新 beta 版本
 model-gate upgrade@beta
-```
 
-> `upgrade` 优先使用 bun 执行全局安装；未检测到 bun 时会提示安装。
+# 指定配置文件（任意模式下均可用，也支持 -c 简写）
+model-gate --config /path/to/config.json
+
+# 强制覆盖已有配置（与 init 一起使用）
+model-gate init --force
+```
 
 </details>
 
@@ -425,7 +437,7 @@ bun scripts/smoke.ts           # 端到端冒烟：health/models/鉴权/chat 转
 ```
 ├── config.example.json   # 配置示例（复制为 config.json 使用）
 ├── src/
-│   ├── index.ts          # 入口：加载配置、热加载、Bun.serve（含 init 子命令）
+│   ├── index.ts          # 入口：加载配置、热加载、Bun.serve（含 init / help / version 子命令）
 │   ├── app.ts            # Hono 路由：鉴权、日志中间件、/v1/* 端点
 │   ├── admin.ts          # /admin 管理后端 API（配置读写、测试连接、用量统计等）
 │   ├── config.ts         # 配置类型、校验、${ENV} 插值
