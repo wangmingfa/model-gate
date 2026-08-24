@@ -134,7 +134,6 @@ async function onSave(): Promise<void> {
             </span>
           </template>
           <ItemCard
-            :title="`alias #${i + 1}${a.name ? `（${a.name}）` : ''}`"
             :error="store.erroredAliases.has(a.name)"
             remove-tooltip="删除该别名"
             @remove="removeAlias(i)"

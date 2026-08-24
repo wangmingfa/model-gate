@@ -74,7 +74,7 @@ async function onTestAll(): Promise<void> {
 
 const latencyColumns = [
   { title: '提供商', key: 'provider', width: 120, ellipsis: { tooltip: true } },
-  { title: '模型', key: 'model', width: 150, ellipsis: { tooltip: true } },
+  { title: '模型', key: 'model', width: 250, ellipsis: { tooltip: true } },
   {
     title: '延迟',
     key: 'ms',
