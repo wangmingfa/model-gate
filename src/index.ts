@@ -115,6 +115,42 @@ if (subcommand === 'init') {
   }
 }
 
+// 子命令：model-gate upgrade [@beta] —— 升级到最新版本（默认 latest，指定 @beta 升级到最新 beta）
+// 优先用 bun 全局安装；bun 不可用则提示用户先安装 bun
+if (subcommand?.startsWith('upgrade')) {
+  try {
+    const tag = subcommand.includes('@') ? subcommand.split('@')[1] : 'latest';
+    const pkgName = 'wangmingfa/model-gate'; // 不带 @，npm/bun install -g 接受 @scope/name 写法
+    const spec = `@${pkgName}@${tag}`;
+
+    // 优先 bun
+    const bunPath = typeof Bun !== 'undefined' ? Bun.which('bun') : undefined;
+    if (bunPath) {
+      console.log(`[model-gate] 正在用 bun 升级到 ${tag} 版本: ${spec}`);
+      const proc = Bun.spawn(['bun', 'install', '-g', spec], {
+        stdout: 'inherit',
+        stderr: 'inherit',
+      });
+      const code = await proc.exited;
+      if (code === 0) {
+        console.log(`\n✅ 已升级到 ${spec}，请重启 model-gate 生效`);
+        process.exit(0);
+      }
+      // bun 报错但不一定是「找不到 bun」—— 仍提示安装以确保清晰
+      console.error(`\n❌ bun 升级失败（exit ${code}）。`);
+    }
+
+    // bun 不可用 / 失败：提示安装（不 fallback 到 npm，按需求仅提示）
+    console.error(`\n⚠️  未检测到可用的 bun，无法自动升级。`);
+    console.error(`   请先安装 bun： https://bun.sh/docs/install`);
+    console.error(`   或手动升级： bun install -g ${spec}`);
+    process.exit(1);
+  } catch (e) {
+    console.error(`[model-gate] 升级失败: ${(e as Error).message}`);
+    process.exit(1);
+  }
+}
+
 // 启动 guard：配置文件不存在时，自动生成一份示例并继续启动（零配置开箱即用）
 if (!existsSync(configPath)) {
   try {
