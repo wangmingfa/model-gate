@@ -107,7 +107,7 @@ const hasData = computed(() => (data.value?.overview.requests ?? 0) > 0);
         <n-grid-item span="4 m:1">
           <div class="stat-box">
             <div class="stat-label">成功率</div>
-            <div class="stat-val" :style="{ color: ov.successRate >= 99 ? '#18a058' : ov.successRate >= 95 ? '#f0a020' : '#e5484d' }">{{ ov.successRate }}%</div>
+            <div class="stat-val" :style="{ color: ov.successRate >= 99 ? '#18a058' : ov.successRate >= 95 ? '#d97706' : '#e5484d' }">{{ ov.successRate }}%</div>
           </div>
         </n-grid-item>
         <n-grid-item span="4 m:1">
@@ -176,15 +176,16 @@ const hasData = computed(() => (data.value?.overview.requests ?? 0) > 0);
   display: flex;
   flex-direction: column;
   justify-content: center;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 55%, #d946ef 100%);
-  color: #fff;
+  background: linear-gradient(135deg, #eef0ff 0%, #f4ecff 100%);
+  color: #1f2937;
   border-radius: 12px;
   padding: 10px 16px;
-  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.25);
+  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.10);
 }
 .stat-label {
   font-size: 12px;
-  opacity: 0.85;
+  color: #6b7280;
 }
 .stat-val {
   font-size: 26px;
@@ -194,7 +195,7 @@ const hasData = computed(() => (data.value?.overview.requests ?? 0) > 0);
 }
 .stat-sub {
   font-size: 11px;
-  opacity: 0.8;
+  color: #9ca3af;
   margin-top: 4px;
 }
 

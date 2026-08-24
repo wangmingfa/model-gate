@@ -179,6 +179,47 @@ async function serveSpa(c: Context, dist: string, rel: string): Promise<Response
   return c.text('admin UI 未构建：先运行 bun run build:admin 或 bun run embed:admin', 404);
 }
 
+/**
+ * 单次连通性探测：对 {baseUrl}/chat/completions 发 1-token 请求，返回耗时与成败。
+ * 供「测试连接」（单 provider）与「一键测试所有提供商延迟」共用。
+ */
+async function pingOnce(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  timeoutMs: number,
+): Promise<{ ok: boolean; ms: number; status?: number | null; error?: string }> {
+  const start = Date.now();
+  try {
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: apiKey ? `Bearer ${apiKey}` : '' },
+      body: JSON.stringify({ model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const ms = Date.now() - start;
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      return { ok: false, ms, status: res.status, error: text.slice(0, 500) };
+    }
+    return { ok: true, ms };
+  } catch (e) {
+    const ms = Date.now() - start;
+    const raw = (e as Error).message;
+    let error: string;
+    if (/timed out|timeout/i.test(raw)) {
+      // AbortSignal.timeout 触发：等待超过阈值仍无响应
+      error = `连接超时（等待超过 ${Math.round(timeoutMs / 1000)} 秒无响应）`;
+    } else if (/fetch failed|econnrefused|enotfound|econnreset|etimedout|network|getaddrinfo/i.test(raw)) {
+      // 网络层不可达：地址错误 / DNS 解析失败 / 被拒绝
+      error = `无法连接：${raw}`;
+    } else {
+      error = raw;
+    }
+    return { ok: false, ms, error };
+  }
+}
+
 /** 构建管理界面应用（挂载到 /admin 下） */
 export function createAdminApp(
   getConfig: () => Config,
@@ -387,23 +428,8 @@ export function createAdminApp(
     // 空串/未填表示「保持原值」，必须用服务端已保存的 key，避免用空串去打上游
     const apiKey = (typeof draftApiKey === 'string' && draftApiKey.trim()) ? draftApiKey.trim() : saved?.api_key ?? '';
 
-    const start = Date.now();
-    try {
-      const res = await fetch(`${baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 }),
-        signal: AbortSignal.timeout(15000),
-      });
-      const ms = Date.now() - start;
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        return c.json({ ok: false, status: res.status, error: text.slice(0, 500), ms });
-      }
-      return c.json({ ok: true, ms });
-    } catch (e) {
-      return c.json({ ok: false, status: null, error: (e as Error).message, ms: Date.now() - start });
-    }
+    const r = await pingOnce(baseUrl, apiKey, model, 15000);
+    return c.json(r);
   });
 
   // 拉取上游模型列表：给定 provider 的 base_url / api_key（草稿优先、服务端回退），
@@ -464,6 +490,36 @@ export function createAdminApp(
     } catch (e) {
       return c.json({ ok: false, status: null, error: (e as Error).message, ms: Date.now() - start });
     }
+  });
+
+  // 一键测试所有提供商的延迟：用各 provider 第一个模型发 1-token 探测，并发执行。
+  // 返回每个 provider 的延迟与成败，供前端一键对比各上游响应速度。
+  admin.post('/api/providers/latency', async (c) => {
+    const cfg = getConfig();
+    // 延迟探测单次超时封顶 60s（1 分钟）：足够识别慢/不可达的上游，
+    // 又远低于服务器 idleTimeout（180s），并发整批不会触发服务端超时
+    const timeoutMs = Math.min(
+      (typeof cfg.timeout_seconds === 'number' && cfg.timeout_seconds > 0 ? cfg.timeout_seconds : 60) * 1000,
+      60000,
+    );
+    // 用 allSettled 而非 all：即使个别 provider 探测意外抛错（理论上 pingOnce 已全 catch），
+    // 也不会让整个接口 500，而是把该 provider 记为失败行，保证汇总结果始终完整
+    const settled = await Promise.allSettled(
+      Object.entries(cfg.providers).map(async ([name, p]) => {
+        const model = p.models[0];
+        if (!model) {
+          return { provider: name, model: '', ok: false, error: '未配置模型' };
+        }
+        const r = await pingOnce(p.base_url, p.api_key, model, timeoutMs);
+        return { provider: name, model, ...r };
+      }),
+    );
+    const results = settled.map((s) =>
+      s.status === 'fulfilled'
+        ? s.value
+        : { provider: '(未知)', model: '', ok: false, error: `探测异常：${String(s.reason)}` },
+    );
+    return c.json({ results });
   });
 
   // 用量统计：读取 access.log 聚合（仅统计 /v1/chat/completions 真实流量）

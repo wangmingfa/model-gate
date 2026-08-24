@@ -200,6 +200,9 @@ const app = createApp(() => cfg, { configPath, includeAdminStatic });
 const server = Bun.serve({
   hostname: cfg.host,
   port: cfg.port,
+  // 允许长耗时请求（如一键测所有提供商延迟，最坏等最慢 provider）：
+  // 默认 idleTimeout 仅 10s，会把这类请求掐断导致前端「请求失败」
+  idleTimeout: 180,
   // 把 Bun server 作为 env 传入，让 /admin 的回环检查能拿到 requestIP
   fetch: (req, server) => app.fetch(req, server),
 });

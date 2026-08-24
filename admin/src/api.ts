@@ -121,6 +121,27 @@ export function fetchModels(
   });
 }
 
+/** 单个提供商的延迟探测结果（一键测试所有提供商时返回） */
+export interface ProviderLatency {
+  /** provider 名称 */
+  provider: string;
+  /** 实际探测用的模型（取该 provider 的 models[0]） */
+  model: string;
+  /** 探测是否成功（HTTP 2xx 且拿到响应） */
+  ok: boolean;
+  /** 耗时（毫秒）；失败时为超时/异常前的耗时 */
+  ms?: number;
+  /** HTTP 状态码；网络/超时异常时为 null */
+  status?: number | null;
+  /** 失败原因（HTTP 非 2xx 的响应体摘要，或异常信息） */
+  error?: string;
+}
+
+/** 一键测试所有提供商的延迟：后端并发探测每个 provider 的第一个模型，返回各 provider 耗时与成败 */
+export function testAllProviders(): Promise<{ results: ProviderLatency[] }> {
+  return request('/providers/latency', { method: 'POST' });
+}
+
 // ---- 登录 / 登出 / 登录状态 ----
 
 export interface AuthStatus {

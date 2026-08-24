@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
-import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NDynamicInput, NTag, NIcon } from 'naive-ui';
-import { ServerOutline, SaveOutline } from '@vicons/ionicons5';
+import { ref, watch, h } from 'vue';
+import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NDynamicInput, NTag, NIcon, NDataTable, NEmpty } from 'naive-ui';
+import { ServerOutline, SaveOutline, SpeedometerOutline } from '@vicons/ionicons5';
 import { useConfigStore, type ProviderRow } from '../../configStore';
 import ItemCard from '../ItemCard.vue';
+import { testAllProviders, type ProviderLatency } from '../../api';
 
 const store = useConfigStore();
 
@@ -51,6 +52,44 @@ async function onSave(): Promise<void> {
   // 同步草稿：失败也不丢内容——saveSection 不再 load 回滚，store.providers 仍是刚写入的草稿拷贝
   draft.value = JSON.parse(JSON.stringify(store.providers));
 }
+
+// 一键测试所有提供商的延迟：后端并发探测各 provider 首个模型，返回耗时与成败
+const testingAll = ref(false);
+const latencyResults = ref<ProviderLatency[] | null>(null);
+const latencyError = ref('');
+
+async function onTestAll(): Promise<void> {
+  testingAll.value = true;
+  latencyError.value = '';
+  try {
+    const res = await testAllProviders();
+    latencyResults.value = res.results;
+  } catch (e) {
+    latencyError.value = (e as Error).message;
+    latencyResults.value = null;
+  } finally {
+    testingAll.value = false;
+  }
+}
+
+const latencyColumns = [
+  { title: '提供商', key: 'provider', width: 120, ellipsis: { tooltip: true } },
+  { title: '模型', key: 'model', width: 150, ellipsis: { tooltip: true } },
+  {
+    title: '延迟',
+    key: 'ms',
+    width: 90,
+    render: (row: ProviderLatency) => (typeof row.ms === 'number' ? `${row.ms} ms` : '—'),
+  },
+  {
+    title: '状态',
+    key: 'status',
+    width: 80,
+    render: (row: ProviderLatency) =>
+      h(NTag, { type: row.ok ? 'success' : 'error', size: 'small' }, { default: () => (row.ok ? '正常' : '失败') }),
+  },
+  { title: '说明', key: 'error', minWidth: 120, ellipsis: { tooltip: true } },
+];
 </script>
 
 <template>
@@ -59,6 +98,33 @@ async function onSave(): Promise<void> {
       <span class="card-title"><n-icon :size="16"><ServerOutline /></n-icon> 提供商（providers）</span>
     </template>
     <n-space vertical>
+      <!-- 一键延迟测试：按钮与结果同区，点击后结果紧邻按钮下方 -->
+      <div class="latency-panel">
+        <div class="latency-toolbar">
+          <n-button size="small" :loading="testingAll" @click="onTestAll">
+            <template #icon><n-icon><SpeedometerOutline /></n-icon></template>
+            测试所有提供商延迟
+          </n-button>
+          <span v-if="testingAll" class="latency-hint">正在探测各 provider 首个模型…</span>
+        </div>
+
+        <div v-if="latencyResults || latencyError" class="latency-block">
+          <div class="trend-title">提供商延迟（探测各 provider 首个模型）</div>
+          <n-empty v-if="latencyError" description="请求失败" />
+          <n-empty v-else-if="latencyResults && latencyResults.length === 0" description="尚未配置任何 provider" />
+          <n-data-table
+            v-else
+            :columns="latencyColumns"
+            :data="latencyResults ?? []"
+            :row-key="(r: ProviderLatency) => `${r.provider}:${r.model}`"
+            size="small"
+            :bordered="false"
+            max-height="320"
+          >
+          </n-data-table>
+        </div>
+      </div>
+
       <n-collapse v-model:expanded-names="expandedNames">
         <n-collapse-item v-for="(p, i) in draft" :key="p._id" :name="p._id" arrow-placement="left">
           <template #header>
@@ -112,9 +178,9 @@ async function onSave(): Promise<void> {
                 {{ store.testStates[p.name]?.result }}
               </n-tag>
             </div>
-            <n-form-item style="margin-bottom: 0">
+            <n-form-item class="model-list-item" style="margin-bottom: 0">
               <template #label>
-                <span style="display: inline-flex; align-items: center; gap: 8px">
+                <span class="model-list-label">
                   模型列表
                   <n-button
                     size="tiny"
@@ -122,6 +188,7 @@ async function onSave(): Promise<void> {
                     secondary
                     :loading="store.fetchStates[p.name]?.fetching"
                     @click="store.onFetchModels(p)"
+                    style="pointer-events: auto"
                   >
                     拉取模型
                   </n-button>
@@ -141,6 +208,7 @@ async function onSave(): Promise<void> {
           </ItemCard>
         </n-collapse-item>
       </n-collapse>
+
       <n-space justify="space-between">
         <n-button size="small" @click="addProvider">+ 添加 provider</n-button>
         <n-button type="primary" :loading="store.saving" @click="onSave">
@@ -154,6 +222,43 @@ async function onSave(): Promise<void> {
 
 <style lang="scss">
 @use '../../styles/breakpoint' as *;
+
+.latency-panel {
+  background: #f7f8fa;
+  border: 1px solid #eef0f3;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 6px;
+}
+.latency-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.latency-hint {
+  font-size: 12px;
+  color: #6b7280;
+}
+.latency-block {
+  margin-top: 10px;
+}
+.trend-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 10px;
+}
+/* 拉取模型按钮贴在 label 文字后面，但禁用 label 整体穿透激活，
+   只在按钮本身（pointer-events:auto）可点，点 label 空白不再误触发拉取 */
+.model-list-item :deep(.n-form-item-label) {
+  pointer-events: none;
+}
+.model-list-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
 
 @media (max-width: $mg-breakpoint) {
   /* provider 编辑区：移动端名称和 base_url 竖排，base_url 独占一行 */
