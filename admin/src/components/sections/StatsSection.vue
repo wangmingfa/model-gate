@@ -232,6 +232,7 @@ const hasData = computed(() => (data.value?.overview.requests ?? 0) > 0);
 }
 .bar {
   width: 70%;
+  max-width: 42px;
   min-height: 2px;
   background: linear-gradient(180deg, #8b5cf6, #6366f1);
   border-radius: 4px 4px 0 0;
