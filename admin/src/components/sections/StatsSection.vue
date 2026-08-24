@@ -60,7 +60,7 @@ const aliasColumns = [
   { title: 'P95(ms)', key: 'p95Ms', width: 100, render: (r: StatsRow) => Math.round(r.p95Ms) },
 ];
 const keyColumns = [
-  { title: '下游密钥', key: 'key', width: 160 },
+  { title: '下游密钥', key: 'key', width: 260 },
   { title: '请求数', key: 'requests', width: 100, render: (r: StatsRow) => fmtNum(r.requests) },
   { title: '失败', key: 'failures', width: 80, render: (r: StatsRow) => r.failures },
   { title: '成功率', key: 'successRate', width: 100, render: (r: StatsRow) => `${r.successRate}%` },
