@@ -34,7 +34,7 @@ function buildSampleConfig(): string {
     providers: {
       deepseek: {
         base_url: 'https://api.deepseek.com/v1',
-        api_key: '${DEEPSEEK_API_KEY}',
+        api_key: 'sk-your-deepseek-key-here',
         models: ['deepseek-chat', 'deepseek-reasoner'],
       },
       kimi: {
@@ -107,7 +107,7 @@ if (subcommand === 'init') {
     }
     writeSampleConfig(configPath);
     console.log(`[model-gate] 已生成示例配置: ${configPath}`);
-    console.log(`[model-gate] 编辑它填入你的厂商 key，然后运行 \`model-gate\` 启动`);
+    console.log(`[model-gate] 把 providers.*.api_key 换成真实 key（或用 \${ENV_VAR} 引用环境变量），再运行 \`model-gate\` 启动`);
     process.exit(0);
   } catch (e) {
     console.error(`[model-gate] 生成配置失败: ${(e as Error).message}`);
@@ -120,7 +120,7 @@ if (!existsSync(configPath)) {
   try {
     writeSampleConfig(configPath);
     console.log(`[model-gate] 配置文件不存在，已自动生成示例: ${configPath}`);
-    console.log(`[model-gate] 编辑它填入你的厂商 key 后，重启服务即可生效`);
+    console.log(`[model-gate] 把 providers.*.api_key 换成真实 key（或用 \${ENV_VAR} 引用环境变量）后重启即可生效`);
   } catch (e) {
     console.error(`[model-gate] 自动生成示例配置失败: ${(e as Error).message}`);
     process.exit(1);
