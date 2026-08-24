@@ -35,6 +35,21 @@ vim config.json
 model-gate
 ```
 
+<details>
+<summary>其他命令</summary>
+
+```bash
+# 升级到最新 stable 版本
+model-gate upgrade
+
+# 升级到最新 beta 版本
+model-gate upgrade@beta
+```
+
+> `upgrade` 优先使用 bun 执行全局安装；未检测到 bun 时会提示安装。
+
+</details>
+
 启动后：
 
 - 网关地址：`http://127.0.0.1:8787`
