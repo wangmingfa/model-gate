@@ -57,36 +57,86 @@ async function withSpinner<T>(text: string, fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/** npm 查询遇临时性失败时的最大重试次数与每次间隔 */
+const NPM_QUERY_RETRIES = 3;
+const NPM_QUERY_RETRY_DELAY_MS = 1000;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * 通用重试：task 抛错时重试，直到成功或重试次数耗尽。
+ * 耗尽后抛出最后一次的错误，由上层终止并提示原因。
+ */
+async function withRetry<T>(
+  task: () => Promise<T>,
+  opts: { retries: number; delayMs: number; onRetry?: (attempt: number, err: Error) => void },
+): Promise<T> {
+  let lastErr: Error | undefined;
+  for (let attempt = 1; attempt <= opts.retries + 1; attempt++) {
+    try {
+      return await task();
+    } catch (e) {
+      lastErr = e as Error;
+      if (attempt <= opts.retries) {
+        opts.onRetry?.(attempt, lastErr);
+        await sleep(opts.delayMs);
+      }
+    }
+  }
+  throw lastErr ?? new Error('未知查询错误');
+}
+
+/**
+ * 执行 `npm view <name> versions --json`，结构化返回：
+ *   - { found: true, versions }          查询成功
+ *   - { found: false, versions: [] }      包在 registry 上不存在（404，视为首发）
+ *   - 抛错                                传输 / 网络等临时性错误（需重试或终止）
+ * 通过 stderr 是否含 E404 / Not Found 区分「真的不存在」与「查询出错」，
+ * 避免把网络抖动误判成「从未发布」。
+ */
+async function npmViewVersions(name: string): Promise<{ found: boolean; versions: string[] }> {
+  const proc = Bun.spawn(['npm', 'view', name, 'versions', '--json'], {
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  const out = await new Response(proc.stdout).text();
+  const err = await new Response(proc.stderr).text();
+  const code = await proc.exited;
+  if (code === 0) {
+    try {
+      const parsed = JSON.parse(out);
+      return { found: true, versions: Array.isArray(parsed) ? parsed : [] };
+    } catch {
+      throw new Error(`npm 返回了无法解析的响应: ${out.trim().slice(0, 200)}`);
+    }
+  }
+  if (/E?404|Not Found/i.test(err)) return { found: false, versions: [] };
+  throw new Error(`npm view 查询失败 (exit ${code}): ${(err.trim() || out.trim()).slice(0, 300)}`);
+}
+
 /**
  * 从 npm registry 拉取该包「当前通道」已发布的最新版本（按 semver 取最大）。
  * - channel=beta：只看带 prerelease 后缀的版本（如 x.y.z-beta.N），取最大
  * - channel=latest：只看 stable 版本（无后缀），取最大
  * 该通道没有任何已发布版本（含从未发布）返回 null。
+ * 查询遇临时性错误会重试；重试耗尽仍失败则向上抛错，由 main() 终止并提示原因。
  * 注意：不能用 `npm view <pkg> version`（它只看 latest dist-tag，会漏掉 beta 版本）。
  */
 async function fetchLatestVersion(name: string, channel: Channel): Promise<string | null> {
-  try {
-    const proc = Bun.spawn(['npm', 'view', name, 'versions', '--json'], {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-    const out = await new Response(proc.stdout).text();
-    const code = await proc.exited;
-    if (code !== 0) return null;
-    let versions: string[];
-    try {
-      const parsed = JSON.parse(out);
-      versions = Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return null;
-    }
-    const isPre = (v: string) => /-\w/.test(v);
-    const inChannel = channel === 'beta' ? isPre : (v: string) => !isPre(v);
-    const candidates = versions.filter(inChannel).sort((a, b) => cmpSemver(a, b));
-    return candidates.length ? candidates[candidates.length - 1] : null;
-  } catch {
-    return null;
-  }
+  const result = await withRetry(
+    () => npmViewVersions(name),
+    {
+      retries: NPM_QUERY_RETRIES,
+      delayMs: NPM_QUERY_RETRY_DELAY_MS,
+      onRetry: (attempt, err) =>
+        console.warn(`\n⚠️  第 ${attempt} 次查询 npm 失败，${NPM_QUERY_RETRY_DELAY_MS / 1000}s 后重试：${err.message}`),
+    },
+  );
+  if (!result.found) return null;
+  const isPre = (v: string) => /-\w/.test(v);
+  const inChannel = channel === 'beta' ? isPre : (v: string) => !isPre(v);
+  const candidates = result.versions.filter(inChannel).sort((a, b) => cmpSemver(a, b));
+  return candidates.length ? candidates[candidates.length - 1] : null;
 }
 
 /** 简单 semver 比较：a < b 返回负数，a === b 返回 0，a > b 返回正数 */
@@ -110,20 +160,38 @@ export function isValidVersion(v: string): boolean {
   return /^\d+\.\d+\.\d+(?:-[\w.]+)?$/.test(v);
 }
 
-/** 该版本号是否已在 npm 上发布过（占用） */
+/**
+ * 查询 `npm view <name>@<version> version`，区分三种情况：
+ *   - { exists: true }                 已发布（占用）
+ *   - { exists: false }                包/版本不存在（404）
+ *   - 抛错                             传输 / 网络等临时性错误（需重试或终止）
+ */
+async function npmViewVersionExact(name: string, version: string): Promise<{ exists: boolean }> {
+  const proc = Bun.spawn(['npm', 'view', `${name}@${version}`, 'version'], {
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  const out = await new Response(proc.stdout).text();
+  const err = await new Response(proc.stderr).text();
+  const code = await proc.exited;
+  if (code === 0) return { exists: out.trim() === version };
+  if (/E?404|Not Found/i.test(err)) return { exists: false };
+  throw new Error(`npm view 查询失败 (exit ${code}): ${(err.trim() || out.trim()).slice(0, 300)}`);
+}
+
+/** 该版本号是否已在 npm 上发布过（占用）。
+ *  临时性查询错误会重试；重试耗尽仍失败则抛错，由上层终止并提示原因，
+ *  避免把「查询失败」误判为「未占用」而覆盖已发布版本。 */
 export async function versionExists(name: string, version: string): Promise<boolean> {
-  try {
-    const proc = Bun.spawn(['npm', 'view', `${name}@${version}`, 'version'], {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-    const out = await new Response(proc.stdout).text();
-    const code = await proc.exited;
-    if (code !== 0) return false;
-    return out.trim() === version;
-  } catch {
-    return false;
-  }
+  return await withRetry(
+    () => npmViewVersionExact(name, version),
+    {
+      retries: NPM_QUERY_RETRIES,
+      delayMs: NPM_QUERY_RETRY_DELAY_MS,
+      onRetry: (attempt, err) =>
+        console.warn(`\n⚠️  第 ${attempt} 次查询 npm 失败，${NPM_QUERY_RETRY_DELAY_MS / 1000}s 后重试：${err.message}`),
+    },
+  ).then((r) => r.exists);
 }
 
 /** 从版本号推断通道：带 -beta 等 prerelease 后缀 → beta，否则 latest */
