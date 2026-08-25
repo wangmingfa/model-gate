@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NConfigProvider, NMessageProvider, NDialogProvider, type GlobalThemeOverrides } from 'naive-ui';
+import { NConfigProvider, NMessageProvider, NDialogProvider, zhCN, dateZhCN, type GlobalThemeOverrides } from 'naive-ui';
 import App from './App.vue';
 
 // 品牌主题：靛紫渐变系，圆角更柔和
@@ -23,7 +23,7 @@ const themeOverrides: GlobalThemeOverrides = {
 
 <template>
   <div class="app-bg">
-    <n-config-provider :theme-overrides="themeOverrides">
+    <n-config-provider :theme-overrides="themeOverrides" :locale="zhCN" :date-locale="dateZhCN">
       <n-message-provider>
         <n-dialog-provider>
           <App />
