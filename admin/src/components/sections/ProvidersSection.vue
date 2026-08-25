@@ -248,15 +248,15 @@ const latencyColumns = [
   color: #333;
   margin-bottom: 10px;
 }
-/* 拉取模型按钮贴在 label 文字后面，但禁用 label 整体穿透激活，
-   只在按钮本身（pointer-events:auto）可点，点 label 空白不再误触发拉取 */
-.model-list-item :deep(.n-form-item-label) {
-  pointer-events: none;
-}
 .model-list-label {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  pointer-events: none;
+}
+/* 拉取模型按钮贴在 label 文字后面，但禁用 label 整体穿透激活，
+   只在按钮本身（pointer-events:auto）可点，点 label 空白不再误触发拉取 */
+.model-list-item .n-form-item-label {
   pointer-events: none;
 }
 
