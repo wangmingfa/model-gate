@@ -5,6 +5,8 @@ export interface ProviderDraft {
   /** provider 原始 api_key（可能是 ${VAR} 引用或明文）；前端仅用于显示时掩码，回写原样保存；留空 = 保持磁盘原值 */
   api_key: string;
   models: string[];
+  /** 模型计费单价（每 1M tokens），可选；键为模型 id，值为 { prompt, completion } */
+  pricing?: Record<string, { prompt: number; completion: number }>;
 }
 
 /** 下游密钥：名称 + 密钥值（已有密钥后端返回掩码形式）+ 添加时间 */
@@ -79,6 +81,16 @@ export function getAliasStatus(): Promise<{ generatedAt: string; aliases: AliasS
 
 export function saveConfig(draft: ConfigDraft): Promise<{ ok: true }> {
   return request('/config', { method: 'PUT', body: JSON.stringify(draft) });
+}
+
+/** 导出当前配置（原始 JSON，含 ${VAR} 引用与 admin_password），用于备份/迁移 */
+export function exportConfig(): Promise<Record<string, unknown>> {
+  return request('/config/export');
+}
+
+/** 导入完整配置对象，校验后原子写回（与保存共用后端逻辑） */
+export function importConfig(draft: ConfigDraft): Promise<{ ok: true }> {
+  return request('/config/import', { method: 'POST', body: JSON.stringify(draft) });
 }
 
 export interface TestResult {
@@ -172,6 +184,8 @@ export interface StatsOverview {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  /** 估算成本（按各 provider 配置的单价 × token 用量汇总；未配置单价的模型记为 0） */
+  cost: number;
   p95Ms: number;
 }
 
@@ -181,6 +195,8 @@ export interface StatsRow {
   failures: number;
   successRate: number;
   tokens: number;
+  /** 估算成本（该维度下汇总） */
+  cost: number;
   p95Ms: number;
 }
 

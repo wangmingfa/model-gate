@@ -204,7 +204,10 @@ describe('PUT /admin/api/config', () => {
     };
     writeConfig(envCfg);
     // GET 返回 api_key_raw（即 ${VAR} 引用本身），前端原样回写（掩码只在前端显示，不进请求体）
-    const draft = { ...envCfg, providers: { deepseek: { ...envCfg.providers.deepseek } } };
+    const draft = {
+      ...envCfg,
+      providers: { deepseek: { ...envCfg.providers.deepseek, api_key: '${MG_ADMIN_TEST_KEY}' } },
+    };
     const res = await adminReq('/api/config', { method: 'PUT', body: JSON.stringify(draft) });
     expect(res.status).toBe(200);
     // 关键断言：config.json 里必须仍是 ${VAR} 引用，绝不能是解析后的明文

@@ -58,6 +58,10 @@ model-gate --config /path/to/config.json
 
 # 强制覆盖已有配置（与 init 一起使用）
 model-gate init --force
+
+# 打印当前生效配置（密钥/admin_password 掩码为 ***，${VAR} 引用保留原样）
+# 便于核对运行态，不修改任何文件
+model-gate config
 ```
 
 </details>
@@ -89,7 +93,11 @@ agent 侧只需配置一处即可接入：
 - **多下游密钥**：多个 agent 各用一个 key，为按 agent 记账/排查打基础
 - **配置热加载**：改 `config.json` 立即生效，无需重启
 - **请求日志**：控制台每请求一行摘要 + `access.log`（JSONL）逐请求记录 token 用量，可开关
+- **用量统计与成本估算**：`/api/stats` 聚合 `access.log`，按别名/密钥/真实模型统计请求数、token 与**估算成本**（需在各 provider 配 `pricing`）；`/admin` 的「用量统计」页签可视化展示
 - **密钥支持环境变量**：`api_key` 可以写 `${ENV_VAR}` 引用环境变量
+- **Embeddings 端点**：`POST /v1/embeddings`（OpenAI 兼容），复用别名 + failover，响应 `model` 改写为别名
+- **配置导入/导出**：`/admin` 一键导出当前 `config.json`（完整备份，含 `${VAR}` 引用与 `admin_password`）、导入一份完整配置（校验后原子写回，旧配置失败保留）
+- **CLI 查看配置**：`model-gate config` 打印当前生效配置（密钥/`admin_password` 掩码为 `***`，`${VAR}` 引用保留原样），便于核对运行态
 - **Web 配置界面**：`/admin` 下的 SPA（Vite+Vue3+Naive UI），可视化编辑提供商(provider)/别名/密钥/默认模型，保存即校验并热加载；本机回环免登录，非本机访问需 `admin_password` 密码登录；`api_key` 以密码框遮挡显示
 
 ## Web 配置界面（/admin）
@@ -102,7 +110,8 @@ agent 侧只需配置一处即可接入：
 - **局域网/远程访问**：`host` 配成 `0.0.0.0` 时，启动日志会打印所有 IPv4 入口（如 `http://192.168.1.100:8787/admin`），其他机器用该地址访问并密码登录
 
 - **保存 = 校验通过后原子写回 config.json 并热加载生效**，config.json 始终是唯一真相源
-- 可编辑：providers（base_url/api_key/模型列表 + 每个 provider 的"测试连接"按钮）、aliases（别名 → 有序 `provider:model`，顺序即 failover 顺序）、keys（下游密钥）、默认模型
+- 可编辑：providers（base_url/api_key/模型列表 + **可选计费单价 `pricing`**（每 1M tokens 的输入/输出价格，用于成本估算；默认展开，按模型分别填"输入单价/1M"与"输出单价/1M"，货币单位自定）+ 每个 provider 的"测试连接"按钮）、aliases（别名 → 有序 `provider:model`，顺序即 failover 顺序）、keys（下游密钥）、默认模型
+- **导入/导出**：「设置」区提供「导出配置」（下载当前 `config.json` 完整备份，含 `${VAR}` 引用与 `admin_password`）与「导入配置」（选择一个 JSON 文件，校验后原子写回并热加载；校验失败保留旧配置）
 - port / host / timeout 等启动参数只读展示（修改需编辑 config.json 后重启）
 - **访问控制**：本机回环（127.0.0.1/::1）免登录直接进入；**非本机访问需密码登录**——在 config.json 顶层配置 `admin_password`（支持 `${ENV_VAR}` 插值，留空 = 未配置）；未配置时登录页会提示去实际配置文件设置。会话为内存态（24 小时过期，重启失效），登录页提供登出；连续 5 次密码错误锁定 60 秒
 - **安全**：`api_key` 返回真实值，前端以密码框（type=password）遮挡显示，明文不外露；编辑时留空 = 保持原值（不清空原密钥），填新值即覆盖；`admin_password` 不进界面编辑范围，只在配置文件改
@@ -133,6 +142,7 @@ agent 侧只需配置一处即可接入：
 | `base_url` ⭐ | string | 厂商的 OpenAI 兼容端点，如 `https://api.deepseek.com/v1`（尾部斜杠自动去掉） |
 | `api_key` ⭐ | string | 该厂商的密钥；以 `${VAR}` 开头时从环境变量读取（见"环境变量插值"） |
 | `models` ⭐ | string[] | 该 provider 可用的模型 id 列表（非空） |
+| `pricing` | object | 可选，模型计费单价表，键为 `models` 中的模型 id，值为 `{ "prompt": number, "completion": number }`（每 1M tokens 价格，≥0）。配置后 `/api/stats` 才能估算该模型成本；不配则成本为 0 |
 
 **启动时校验**：key 非空、base_url 是 http(s) URL、每个别名项必须是 `provider:model` 且引用存在的 provider 和其 models 列表中的模型、`default_model` 必须是已定义别名。任何一项不合法都会报错退出。
 
@@ -152,7 +162,11 @@ agent 侧只需配置一处即可接入：
     "deepseek": {
       "base_url": "https://api.deepseek.com/v1",
       "api_key": "${DEEPSEEK_API_KEY}",
-      "models": ["deepseek-chat", "deepseek-reasoner"]
+      "models": ["deepseek-chat", "deepseek-reasoner"],
+      "pricing": {
+        "deepseek-chat":     { "prompt": 0.27, "completion": 1.10 },
+        "deepseek-reasoner": { "prompt": 0.55, "completion": 2.19 }
+      }
     },
     "kimi": {
       "base_url": "https://api.moonshot.cn/v1",
@@ -245,6 +259,36 @@ curl http://127.0.0.1:8787/v1/chat/completions \
   }'
 ```
 
+### `POST /v1/embeddings`
+
+OpenAI 兼容的 embeddings 端点（非流式）：
+
+- **请求**：`input`（字符串或字符串数组）、`model`（填别名，不填用 `default_model`）原样透传，其余参数（如 `encoding_format`、`dimensions`）也透传
+- **model 字段**：填别名；空则用 `default_model`；不存在的别名返回 `400`（`model_not_found`，错误信息列出可用别名）
+- **failover**：与 chat 相同，按 `aliases` 中 `provider:model` 顺序逐个尝试；网络错/超时/非 2xx 切下一个；全部失败返回 `502`（`upstream_failed`）
+- **响应**：上游 JSON 原样透传，仅 `model` 字段改写为别名
+
+```bash
+curl http://127.0.0.1:8787/v1/embeddings \
+  -H "Authorization: Bearer sk-local-claude" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fast",
+    "input": "你好，世界"
+  }'
+```
+
+### 用量统计与成本估算
+
+`GET /api/stats`（管理接口，需 `/admin` 会话）聚合 `access.log`，返回总览与按别名/密钥/真实模型的明细：
+
+- 每条请求统计：请求数、prompt/completion/total token、`cost`（估算成本）
+- 总览含累计 token 与总成本
+- **成本估算逻辑**：`cost = (promptTokens / 1e6) * pricing.prompt + (completionTokens / 1e6) * pricing.completion`，其中的 `pricing` 取自命中 provider 的 `pricing[model]`；未配置 `pricing` 的模型成本为 0
+- `/admin` 的「用量统计」页签以表格 + 卡片形式展示上述指标（含「估算成本」列）
+
+> 统计基于 `access.log` 中已记录的 token 用量；流式请求取自最后一个携带 `usage` 的 chunk，上游未返回 `usage` 则该条 token 与成本缺省。
+
 ### 错误格式
 
 统一的 OpenAI 风格错误体：
@@ -259,7 +303,7 @@ curl http://127.0.0.1:8787/v1/chat/completions \
 | 请求体非法 JSON | 400 | `invalid_json` |
 | 未知模型别名 | 400 | `model_not_found` |
 | 所有 provider 失败 | 502（最后一个失败是 4xx 则沿用其状态码） | `upstream_failed` |
-| 未实现的端点（如 `/v1/embeddings`） | 501 | `not_implemented` |
+| 未实现的端点（如 `/v1/completions`、`/v1/audio` 等） | 501 | `not_implemented` |
 
 ### failover 行为
 
@@ -453,6 +497,7 @@ bun scripts/smoke.ts           # 端到端冒烟：health/models/鉴权/chat 转
 ## 限制与路线图
 
 - 上游仅支持 OpenAI 兼容端点（DeepSeek、Kimi、通义、智谱、SiliconFlow 等均兼容）；Anthropic / Gemini 原生协议待加适配层
-- 未实现 `/v1/embeddings`、`/v1/completions` 等端点（返回 501）
+- 已实现 `POST /v1/embeddings`（OpenAI 兼容）；尚未实现 `/v1/completions`、`/v1/audio` 等端点（返回 501）
+- 成本估算基于 `access.log` 已记录的 token 用量与手工配置的 `pricing` 单价；单价需自行填写，网关不联网拉取官方价格
 - 无按 key 限流（本机自用足够；架构上已留身份维度）
-- 无成本估算（access.log 已有 token 用量，需要时可直接算）
+- 配置导入/导出为整份 `config.json` 替换（导入即对旧配置整体覆盖，无字段级合并）

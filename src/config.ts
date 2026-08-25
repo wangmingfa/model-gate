@@ -1,5 +1,13 @@
 import { readFileSync } from 'node:fs';
 
+/** 单个模型的计费单价（每 1M tokens）；货币单位取决于你填写的价格，网关只做乘法汇总 */
+export interface ModelPricing {
+  /** 每 1M tokens 的提示(prompt/input)价格 */
+  prompt: number;
+  /** 每 1M tokens 的完成(completion/output)价格 */
+  completion: number;
+}
+
 /** 单个上游 provider 的配置 */
 export interface ProviderConfig {
   /** base_url，如 https://api.deepseek.com/v1（末尾斜杠会被去掉） */
@@ -10,6 +18,8 @@ export interface ProviderConfig {
   api_key_raw: string;
   /** 该 provider 可用的模型列表 */
   models: string[];
+  /** 模型计费单价（每 1M tokens），可选；配置了才能在用量统计里估算成本 */
+  pricing?: Record<string, ModelPricing>;
 }
 
 /** 下游密钥：带名称与添加时间的对象（密钥由管理界面自动生成，已有密钥不可编辑只能删除） */
@@ -174,11 +184,35 @@ export function validateConfig(raw: unknown, path = '<config>', mode: 'strict' |
     ) {
       fail(`providers.${name}.models 必须是非空字符串数组`);
     }
+
+    // pricing（可选）：模型单价表，用于用量统计估算成本。键为模型 id，值为 {prompt,completion}
+    // （每 1M tokens 价格，>=0 的数字）。不配置则统计时该模型成本为 0。
+    let pricing: Record<string, ModelPricing> | undefined;
+    const pricingRaw = p.pricing;
+    if (pricingRaw !== undefined) {
+      if (!isPlainObject(pricingRaw)) fail(`providers.${name}.pricing 必须是对象`);
+      pricing = {};
+      for (const [m, pr] of Object.entries(pricingRaw as Record<string, unknown>)) {
+        if (!isPlainObject(pr)) fail(`providers.${name}.pricing.${m} 必须是对象 { prompt, completion }`);
+        const prObj = pr as Record<string, unknown>;
+        const prompt = prObj.prompt;
+        const completion = prObj.completion;
+        if (typeof prompt !== 'number' || !Number.isFinite(prompt) || prompt < 0) {
+          fail(`providers.${name}.pricing.${m}.prompt 必须是 >=0 的数字`);
+        }
+        if (typeof completion !== 'number' || !Number.isFinite(completion) || completion < 0) {
+          fail(`providers.${name}.pricing.${m}.completion 必须是 >=0 的数字`);
+        }
+        pricing[m] = { prompt: prompt as number, completion: completion as number };
+      }
+    }
+
     providers[name] = {
       base_url: base_url.replace(/\/+$/, ''),
       api_key,
       api_key_raw: apiKeyRaw,
       models: modelsRaw as string[],
+      pricing,
     };
   }
 

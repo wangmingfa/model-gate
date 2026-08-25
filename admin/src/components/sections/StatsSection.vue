@@ -22,6 +22,7 @@ const fmtTokens = (n: number) => {
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n);
 };
+const fmtCost = (n: number) => `¥${n.toLocaleString('en-US', { maximumFractionDigits: 4 })}`;
 
 async function load(): Promise<void> {
   loading.value = true;
@@ -57,6 +58,7 @@ const aliasColumns = [
   { title: '失败', key: 'failures', width: 80, render: (r: StatsRow) => r.failures },
   { title: '成功率', key: 'successRate', width: 100, render: (r: StatsRow) => `${r.successRate}%` },
   { title: 'Tokens', key: 'tokens', width: 120, render: (r: StatsRow) => fmtTokens(r.tokens) },
+  { title: '估算成本', key: 'cost', width: 120, render: (r: StatsRow) => fmtCost(r.cost) },
   { title: 'P95(ms)', key: 'p95Ms', width: 100, render: (r: StatsRow) => Math.round(r.p95Ms) },
 ];
 const keyColumns = [
@@ -65,6 +67,7 @@ const keyColumns = [
   { title: '失败', key: 'failures', width: 80, render: (r: StatsRow) => r.failures },
   { title: '成功率', key: 'successRate', width: 100, render: (r: StatsRow) => `${r.successRate}%` },
   { title: 'Tokens', key: 'tokens', width: 120, render: (r: StatsRow) => fmtTokens(r.tokens) },
+  { title: '估算成本', key: 'cost', width: 120, render: (r: StatsRow) => fmtCost(r.cost) },
   { title: 'P95(ms)', key: 'p95Ms', width: 100, render: (r: StatsRow) => Math.round(r.p95Ms) },
 ];
 
@@ -97,27 +100,34 @@ const hasData = computed(() => (data.value?.overview.requests ?? 0) > 0);
 
     <template v-else>
       <!-- 总览卡片 -->
-      <n-grid v-if="ov" :cols="4" :x-gap="12" :y-gap="12" responsive="screen" item-responsive>
-        <n-grid-item span="4 m:1">
+      <n-grid v-if="ov" :cols="5" :x-gap="12" :y-gap="12" responsive="screen" item-responsive>
+        <n-grid-item span="5 m:1">
           <div class="stat-box">
             <div class="stat-label">请求总数</div>
             <div class="stat-val">{{ fmtNum(ov.requests) }}</div>
           </div>
         </n-grid-item>
-        <n-grid-item span="4 m:1">
+        <n-grid-item span="5 m:1">
           <div class="stat-box">
             <div class="stat-label">成功率</div>
             <div class="stat-val" :style="{ color: ov.successRate >= 99 ? '#18a058' : ov.successRate >= 95 ? '#d97706' : '#e5484d' }">{{ ov.successRate }}%</div>
           </div>
         </n-grid-item>
-        <n-grid-item span="4 m:1">
+        <n-grid-item span="5 m:1">
           <div class="stat-box">
             <div class="stat-label">Token 总量</div>
             <div class="stat-val">{{ fmtTokens(ov.totalTokens) }}</div>
             <div class="stat-sub">提示 {{ fmtTokens(ov.promptTokens) }} · 补全 {{ fmtTokens(ov.completionTokens) }}</div>
           </div>
         </n-grid-item>
-        <n-grid-item span="4 m:1">
+        <n-grid-item span="5 m:1">
+          <div class="stat-box">
+            <div class="stat-label">估算成本</div>
+            <div class="stat-val">{{ fmtCost(ov.cost) }}</div>
+            <div class="stat-sub">按各 provider 单价 × token 汇总</div>
+          </div>
+        </n-grid-item>
+        <n-grid-item span="5 m:1">
           <div class="stat-box">
             <div class="stat-label">P95 延迟</div>
             <div class="stat-val">{{ Math.round(ov.p95Ms) }}ms</div>

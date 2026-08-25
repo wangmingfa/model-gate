@@ -41,6 +41,7 @@ Model Gate ${getPackageVersion()} — LLM API 中转网关
 用法:
   model-gate                          启动网关（默认监听 127.0.0.1:8787）
   model-gate init                     生成示例 config.json
+  model-gate config                   打印当前生效配置（密钥掩码）
   model-gate upgrade                  升级到最新 stable 版本
   model-gate upgrade@beta             升级到最新 beta 版本
 
@@ -222,6 +223,33 @@ if (subcommand?.startsWith('upgrade')) {
     process.exit(1);
   } catch (e) {
     console.error(`[model-gate] 升级失败: ${(e as Error).message}`);
+    process.exit(1);
+  }
+}
+
+// 子命令：model-gate config —— 打印当前生效配置（密钥掩码），用于核对
+if (subcommand === 'config') {
+  try {
+    const c = loadConfig(configPath, 'boot');
+    const sanitized = {
+      ...c,
+      admin_password: c.admin_password ? '***' : '',
+      providers: Object.fromEntries(
+        Object.entries(c.providers).map(([n, p]) => [
+          n,
+          {
+            ...p,
+            api_key: p.api_key ? '***' : '',
+            api_key_raw: p.api_key_raw.startsWith('${') ? p.api_key_raw : '***',
+          },
+        ]),
+      ),
+      keys: c.keys.map((k) => ({ ...k, key: '***' })),
+    };
+    console.log(JSON.stringify(sanitized, null, 2));
+    process.exit(0);
+  } catch (e) {
+    console.error(`[model-gate] 读取配置失败: ${(e as Error).message}`);
     process.exit(1);
   }
 }

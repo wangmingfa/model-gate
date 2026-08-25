@@ -23,6 +23,8 @@ export interface ProviderRow {
   base_url: string;
   api_key: string;
   models: string[];
+  /** 模型计费单价（每 1M tokens），可选；键为模型 id */
+  pricing?: Record<string, { prompt: number; completion: number }>;
 }
 export interface AliasRow {
   /** 行级稳定 ID（本地生成，与 name 无关）：折叠面板 name 与 v-for key，防改名失焦 */
@@ -97,6 +99,16 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
     return `row-${++rowSeq}`;
   }
 
+  /** 确保 provider 行带有单价表：以当前 models 为键建 {prompt,completion}，
+   *  保留已有值、缺失补 0。这样计费单价区默认就显示（外显），无需先点「配置单价」。 */
+  function ensurePricing(p: ProviderRow): void {
+    const next: Record<string, { prompt: number; completion: number }> = {};
+    for (const m of p.models) {
+      next[m] = { prompt: p.pricing?.[m]?.prompt ?? 0, completion: p.pricing?.[m]?.completion ?? 0 };
+    }
+    p.pricing = next;
+  }
+
   async function load(): Promise<void> {
     loading.value = true;
     loadError.value = '';
@@ -110,15 +122,20 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
       };
       defaultModel.value = cfg.default_model;
       keys.value = [...cfg.keys];
-      providers.value = Object.entries(cfg.providers).map(([name, p]) => ({
-        _id: nextRowId(),
-        name,
-        base_url: p.base_url,
-        // 直接回填真实 api_key：输入框是 password 类型，明文被遮挡不可见；
-        // 清空框保存时后端 resolveApiKey 仍按「保持原值」处理（不会误删），填新值则覆盖。
-        api_key: p.api_key,
-        models: [...p.models],
-      }));
+      providers.value = Object.entries(cfg.providers).map(([name, p]) => {
+        const row: ProviderRow = {
+          _id: nextRowId(),
+          name,
+          base_url: p.base_url,
+          // 直接回填真实 api_key：输入框是 password 类型，明文被遮挡不可见；
+          // 清空框保存时后端 resolveApiKey 仍按「保持原值」处理（不会误删），填新值则覆盖。
+          api_key: p.api_key,
+          models: [...p.models],
+          pricing: p.pricing ? JSON.parse(JSON.stringify(p.pricing)) : undefined,
+        };
+        ensurePricing(row); // 默认就让计费单价区可见（外显）
+        return row;
+      });
       // 服务端 aliases 的 value 是单个 "provider:model" 字符串（兼容个别历史数组写法）
       aliases.value = Object.entries(cfg.aliases).map(([name, targets]) => ({
         _id: nextRowId(),
@@ -133,7 +150,9 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
   }
 
   function addProvider(): void {
-    providers.value.push({ _id: nextRowId(), name: '', base_url: '', api_key: '', models: [] });
+    const row: ProviderRow = { _id: nextRowId(), name: '', base_url: '', api_key: '', models: [], pricing: undefined };
+    ensurePricing(row); // 默认空单价表，计费单价区立即可见
+    providers.value.push(row);
   }
   function addAlias(): void {
     aliases.value.push({ _id: nextRowId(), name: '', targets: [] });
@@ -273,6 +292,7 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
           added++;
         }
       }
+      ensurePricing(provider); // 模型有新增时同步刷新单价表，使计费单价区外显
       fetchStates.value[provider.name] = {
         fetching: false,
         ok: true,
@@ -288,7 +308,7 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
     const providerMap: ConfigDraft['providers'] = {};
     for (const p of providers.value) {
       if (!p.name) throw new Error('provider 名称不能为空');
-      providerMap[p.name] = { base_url: p.base_url, api_key: p.api_key, models: p.models };
+      providerMap[p.name] = { base_url: p.base_url, api_key: p.api_key, models: p.models, pricing: p.pricing };
     }
     const aliasMap: ConfigDraft['aliases'] = {};
     for (const a of aliases.value) {

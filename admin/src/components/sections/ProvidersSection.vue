@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, h } from 'vue';
-import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NDynamicInput, NTag, NIcon, NDataTable, NEmpty } from 'naive-ui';
+import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NDynamicInput, NTag, NIcon, NDataTable, NEmpty, NInputNumber } from 'naive-ui';
 import { ServerOutline, SaveOutline, SpeedometerOutline } from '@vicons/ionicons5';
 import { useConfigStore, type ProviderRow } from '../../configStore';
 import ItemCard from '../ItemCard.vue';
@@ -90,6 +90,18 @@ const latencyColumns = [
   },
   { title: '说明', key: 'error', minWidth: 120, ellipsis: { tooltip: true } },
 ];
+
+/** 初始化该 provider 的单价表（按当前模型列表建 {prompt,completion}），保留已有值 */
+function initPricing(p: ProviderRow): void {
+  const next: Record<string, { prompt: number; completion: number }> = {};
+  for (const m of p.models) {
+    next[m] = { prompt: p.pricing?.[m]?.prompt ?? 0, completion: p.pricing?.[m]?.completion ?? 0 };
+  }
+  p.pricing = next;
+}
+function clearPricing(p: ProviderRow): void {
+  p.pricing = undefined;
+}
 </script>
 
 <template>
@@ -205,6 +217,22 @@ const latencyColumns = [
                 {{ store.fetchStates[p.name]?.result }}
               </n-tag>
             </div>
+            <div v-if="p.models.length" class="pricing-block">
+              <div class="trend-title" style="display: flex; justify-content: space-between; align-items: center">
+                <span>计费单价（每 1M tokens；输入/输出分别计价）</span>
+                <n-button v-if="!p.pricing" size="tiny" tertiary @click="initPricing(p)">配置单价</n-button>
+                <n-button v-else size="tiny" tertiary @click="clearPricing(p)">清除</n-button>
+              </div>
+              <template v-if="p.pricing">
+                <div v-for="(price, m) in p.pricing" :key="m" class="pricing-row">
+                  <span class="pricing-model">{{ m }}</span>
+                  <n-input-number v-model:value="price.prompt" :min="0" :step="0.01" placeholder="输入单价/1M" size="small" style="width: 120px" />
+                  <n-input-number v-model:value="price.completion" :min="0" :step="0.01" placeholder="输出单价/1M" size="small" style="width: 120px" />
+                </div>
+                <div style="font-size: 12px; color: #9ca3af">单价 = 每 1M tokens 价格；货币单位自定（网关仅做乘法，不联网取价）。模型有调整？点「清除」再「配置单价」按当前模型刷新</div>
+              </template>
+              <div v-else style="font-size: 12px; color: #9ca3af">未配置，用量统计不计入成本</div>
+            </div>
           </ItemCard>
         </n-collapse-item>
       </n-collapse>
@@ -258,6 +286,29 @@ const latencyColumns = [
    只在按钮本身（pointer-events:auto）可点，点 label 空白不再误触发拉取 */
 .model-list-item .n-form-item-label {
   pointer-events: none;
+}
+
+.pricing-block {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: #f7f8fa;
+  border: 1px solid #eef0f3;
+  border-radius: 10px;
+}
+.pricing-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+.pricing-model {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: #374151;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @media (max-width: $mg-breakpoint) {

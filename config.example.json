@@ -21,7 +21,11 @@
     "deepseek": {
       "base_url": "https://api.deepseek.com/v1",
       "api_key": "${DEEPSEEK_API_KEY}",
-      "models": ["deepseek-chat", "deepseek-reasoner"]
+      "models": ["deepseek-chat", "deepseek-reasoner"],
+      "pricing": {
+        "deepseek-chat": { "prompt": 0.27, "completion": 1.10 },
+        "deepseek-reasoner": { "prompt": 0.55, "completion": 2.19 }
+      }
     },
     "kimi": {
       "base_url": "https://api.moonshot.cn/v1",

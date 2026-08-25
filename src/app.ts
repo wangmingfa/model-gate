@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Config } from './config';
-import { chatWithFailover } from './providers';
+import { chatWithFailover, embeddingsWithFailover } from './providers';
 import type { LogRecord } from './logger';
 import { writeAccessLog, consoleSummary, setUsageBox, applyUsageBox } from './logger';
 import { createAdminApp } from './admin';
@@ -163,6 +163,52 @@ export function createApp(
       rec.realModel = realModel;
       setUsageBox(rec, usageBox);
     }
+    return res;
+  });
+
+  // embeddings（OpenAI 兼容 /v1/embeddings）：复用别名 + failover，改写 model 为别名
+  app.post('/v1/embeddings', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json(
+        { error: { message: '请求体必须是合法 JSON', type: 'invalid_request_error', code: 'invalid_json' } },
+        400,
+      );
+    }
+    if (typeof body !== 'object' || body === null) {
+      return c.json(
+        { error: { message: '请求体必须是 JSON 对象', type: 'invalid_request_error', code: 'invalid_json' } },
+        400,
+      );
+    }
+    const reqBody = body as Record<string, unknown>;
+    const cfg = getConfig();
+
+    const alias =
+      typeof reqBody.model === 'string' && reqBody.model.length > 0 ? reqBody.model : cfg.default_model;
+    if (!cfg.aliases[alias]) {
+      return c.json(
+        {
+          error: {
+            message: `未知模型 "${alias}"，可用别名: ${Object.keys(cfg.aliases).join(', ')}`,
+            type: 'invalid_request_error',
+            code: 'model_not_found',
+          },
+        },
+        400,
+      );
+    }
+
+    const rec = c.get('access');
+    if (rec) {
+      rec.alias = alias;
+      rec.stream = false;
+    }
+
+    const { res, realModel } = await embeddingsWithFailover(cfg, alias, reqBody);
+    if (rec) rec.realModel = realModel;
     return res;
   });
 

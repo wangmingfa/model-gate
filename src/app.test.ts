@@ -118,7 +118,7 @@ describe('routes', () => {
   });
 
   test('未实现的端点返回 501', async () => {
-    const res = await req('/v1/embeddings', {
+    const res = await req('/v1/completions', {
       method: 'POST',
       headers: { authorization: 'Bearer sk-valid', 'content-type': 'application/json' },
       body: '{}',

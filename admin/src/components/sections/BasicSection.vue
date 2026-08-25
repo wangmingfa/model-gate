@@ -1,13 +1,62 @@
 <script setup lang="ts">
-import { NCard, NForm, NFormItem, NSelect, NSpace, NStatistic } from 'naive-ui';
-import { SettingsOutline } from '@vicons/ionicons5';
+import { ref } from 'vue';
+import { NCard, NForm, NFormItem, NSelect, NSpace, NStatistic, NButton, NIcon, useMessage } from 'naive-ui';
+import { SettingsOutline, DownloadOutline, ArrowUpOutline } from '@vicons/ionicons5';
 import { useConfigStore } from '../../configStore';
+import { exportConfig, importConfig, type ConfigDraft } from '../../api';
 
 const store = useConfigStore();
+const message = useMessage();
 
 // 默认模型：直接双向绑定 store.defaultModel，切换即实时防抖保存（无需单独保存按钮）
 function onDefaultModelChange(): void {
   store.scheduleAutoSave({ successMsg: '基本设置已保存' });
+}
+
+const exporting = ref(false);
+const importing = ref(false);
+const fileInput = ref<HTMLInputElement | null>(null);
+
+async function onExport(): Promise<void> {
+  exporting.value = true;
+  try {
+    const cfg = await exportConfig();
+    const blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `model-gate-config-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    message.success('配置已导出');
+  } catch (e) {
+    message.error(`导出失败：${(e as Error).message}`);
+  } finally {
+    exporting.value = false;
+  }
+}
+
+function triggerImport(): void {
+  fileInput.value?.click();
+}
+
+async function onFileChange(e: Event): Promise<void> {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  importing.value = true;
+  try {
+    const text = await file.text();
+    const draft = JSON.parse(text) as ConfigDraft;
+    await importConfig(draft);
+    message.success('配置已导入并保存（热加载生效）');
+    await store.load();
+  } catch (e) {
+    message.error(`导入失败：${(e as Error).message}`);
+  } finally {
+    importing.value = false;
+    input.value = '';
+  }
 }
 </script>
 
@@ -36,5 +85,17 @@ function onDefaultModelChange(): void {
         />
       </div>
     </n-form-item>
+    <div style="margin-top: 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap">
+      <n-button size="small" :loading="exporting" @click="onExport">
+        <template #icon><n-icon><DownloadOutline /></n-icon></template>
+        导出配置
+      </n-button>
+      <n-button size="small" :loading="importing" @click="triggerImport">
+        <template #icon><n-icon><ArrowUpOutline /></n-icon></template>
+        导入配置
+      </n-button>
+      <span style="color: #9ca3af; font-size: 12px">导出为 JSON 备份；导入将覆盖当前配置并热加载</span>
+      <input ref="fileInput" type="file" accept="application/json,.json" style="display: none" @change="onFileChange" />
+    </div>
   </n-card>
 </template>

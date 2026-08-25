@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync, renameSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { Config } from './config';
-import { validateConfig, checkConfig } from './config';
+import { validateConfig, checkConfig, ConfigError } from './config';
 import { adminAssets } from './admin-assets.generated';
 import { getAccessLogPath } from './logger';
 
@@ -309,30 +309,15 @@ export function createAdminApp(
     });
   });
 
-  // 校验 + 原子写回 config.json（触发热加载）
-  admin.put('/api/config', async (c) => {
-    if (!configPath) {
-      return c.json(
-        { error: { message: '未配置 config 文件路径，无法保存', type: 'server_error', code: 'no_config_path' } },
-        500,
-      );
-    }
-    let draft: unknown;
-    try {
-      draft = await c.req.json();
-    } catch {
-      return c.json({ error: { message: '请求体必须是合法 JSON', type: 'invalid_request_error', code: 'invalid_json' } }, 400);
-    }
-    if (typeof draft !== 'object' || draft === null) {
-      return c.json({ error: { message: '请求体必须是 JSON 对象', type: 'invalid_request_error', code: 'invalid_json' } }, 400);
-    }
-    const d = draft as Record<string, unknown>;
+  // 校验 + 原子写回 config.json（触发热加载）。PUT（保存）与 POST /import（导入）共用。
+  // draft 为前端/导入传来的完整配置对象；api_key 留空保持原值、admin_password 始终保留磁盘原值。
+  async function writeConfigFromDraft(draft: Record<string, unknown>): Promise<void> {
+    if (!configPath) throw new Error('未配置 config 文件路径，无法保存');
     const raw = readRaw(configPath);
 
-    // keys：掩码只在前端做，前端始终回传完整 key，后端原样保存（不再按掩码还原）
     // providers：api_key 留空 → 保持磁盘原始值（保留 ${VAR} 引用），否则原样保存
-    if (typeof d.providers === 'object' && d.providers !== null) {
-      const providers = { ...(d.providers as Record<string, unknown>) };
+    if (typeof draft.providers === 'object' && draft.providers !== null) {
+      const providers = { ...(draft.providers as Record<string, unknown>) };
       for (const [name, p] of Object.entries(providers)) {
         if (typeof p === 'object' && p !== null) {
           const rawCur = (raw?.providers as Record<string, unknown> | undefined)?.[name] &&
@@ -343,23 +328,15 @@ export function createAdminApp(
           };
         }
       }
-      d.providers = providers;
+      draft.providers = providers;
     }
 
-    let validated: Config;
-    try {
-      validated = validateConfig(d);
-    } catch (e) {
-      return c.json(
-        { error: { message: (e as Error).message, type: 'invalid_request_error', code: 'config_invalid' } },
-        400,
-      );
-    }
+    const validated = validateConfig(draft);
     // validateConfig 会对 api_key 做 ${VAR} 插值（返回解析后的明文）；写回文件前把
     // providers 的 api_key 恢复为 draft 中 resolveApiKey 之后的原始形式，保留 ${VAR} 引用
     const providersForWrite: Record<string, unknown> = {};
     for (const name of Object.keys(validated.providers)) {
-      const draftProvider = (d.providers as Record<string, unknown> | undefined)?.[name];
+      const draftProvider = (draft.providers as Record<string, unknown> | undefined)?.[name];
       const draftApiKey =
         typeof draftProvider === 'object' && draftProvider !== null
           ? (draftProvider as Record<string, unknown>).api_key
@@ -371,17 +348,65 @@ export function createAdminApp(
       ...validated,
       providers: providersForWrite as Config['providers'],
       // admin_password 不在编辑范围：写回时保留配置文件中的原始值（含 ${VAR} 引用），避免被空串覆盖
-      admin_password: (typeof raw?.admin_password === 'string' ? raw.admin_password : validated.admin_password),
+      admin_password: typeof raw?.admin_password === 'string' ? raw.admin_password : validated.admin_password,
     };
+    atomicWrite(configPath, `${JSON.stringify(configForWrite, null, 2)}\n`);
+  }
+
+  /** 解析请求体为配置草稿对象；非法 JSON / 非对象返回对应错误响应 */
+  async function parseConfigDraft(c: Context): Promise<Record<string, unknown> | Response> {
+    let draft: unknown;
     try {
-      atomicWrite(configPath, `${JSON.stringify(configForWrite, null, 2)}\n`);
+      draft = await c.req.json();
+    } catch {
+      return c.json({ error: { message: '请求体必须是合法 JSON', type: 'invalid_request_error', code: 'invalid_json' } }, 400);
+    }
+    if (typeof draft !== 'object' || draft === null) {
+      return c.json({ error: { message: '请求体必须是 JSON 对象', type: 'invalid_request_error', code: 'invalid_json' } }, 400);
+    }
+    return draft as Record<string, unknown>;
+  }
+
+  // 保存（管理界面编辑后落盘）
+  admin.put('/api/config', async (c) => {
+    const draft = await parseConfigDraft(c);
+    if (draft instanceof Response) return draft;
+    try {
+      await writeConfigFromDraft(draft);
+      return c.json({ ok: true });
     } catch (e) {
+      const status = e instanceof ConfigError ? 400 : 500;
       return c.json(
-        { error: { message: `写入配置失败: ${(e as Error).message}`, type: 'server_error', code: 'write_failed' } },
-        500,
+        { error: { message: (e as Error).message, type: 'invalid_request_error', code: status === 400 ? 'config_invalid' : 'write_failed' } },
+        status,
       );
     }
-    return c.json({ ok: true });
+  });
+
+  // 导出：返回磁盘上原始配置（含 ${VAR} 引用与 admin_password，作为完整备份），
+  // 前端据此生成下载文件。
+  admin.get('/api/config/export', (c) => {
+    const raw = readRaw(configPath ?? '');
+    if (!raw) {
+      return c.json({ error: { message: '读取配置失败', type: 'server_error', code: 'read_failed' } }, 500);
+    }
+    return c.json(raw);
+  });
+
+  // 导入：接收完整配置对象，校验后原子写回（与保存共用逻辑）。失败时保留旧配置。
+  admin.post('/api/config/import', async (c) => {
+    const draft = await parseConfigDraft(c);
+    if (draft instanceof Response) return draft;
+    try {
+      await writeConfigFromDraft(draft);
+      return c.json({ ok: true });
+    } catch (e) {
+      const status = e instanceof ConfigError ? 400 : 500;
+      return c.json(
+        { error: { message: (e as Error).message, type: 'invalid_request_error', code: status === 400 ? 'config_invalid' : 'write_failed' } },
+        status,
+      );
+    }
   });
 
   // 检查配置正确性：对当前运行中的配置做完整体检，汇总全部错误/告警（不修改配置）
@@ -527,13 +552,15 @@ export function createAdminApp(
     req: number;
     fail: number;
     tokens: number;
+    cost: number;
     latencies: number[];
   }
-  function bump(m: Map<string, Agg>, k: string, d: { req: number; fail: number; tokens: number; ms: number }): void {
-    const cur = m.get(k) ?? { req: 0, fail: 0, tokens: 0, latencies: [] as number[] };
+  function bump(m: Map<string, Agg>, k: string, d: { req: number; fail: number; tokens: number; cost: number; ms: number }): void {
+    const cur = m.get(k) ?? { req: 0, fail: 0, tokens: 0, cost: 0, latencies: [] as number[] };
     cur.req += d.req;
     cur.fail += d.fail;
     cur.tokens += d.tokens;
+    cur.cost += d.cost;
     if (d.ms >= 0) cur.latencies.push(d.ms);
     m.set(k, cur);
   }
@@ -548,6 +575,20 @@ export function createAdminApp(
     const days = Number(c.req.query('days') ?? '30');
     const rangeDays = Number.isFinite(days) && days > 0 ? Math.min(days, 365) : 30;
     const sinceMs = Date.now() - rangeDays * 24 * 60 * 60 * 1000;
+
+    // 单价表：provider:model -> {prompt, completion}（每 1M tokens）。来自当前生效配置。
+    const priceMap = new Map<string, { prompt: number; completion: number }>();
+    const cfgNow = getConfig();
+    for (const [prov, p] of Object.entries(cfgNow.providers)) {
+      if (!p.pricing) continue;
+      for (const [m, pr] of Object.entries(p.pricing)) priceMap.set(`${prov}:${m}`, pr);
+    }
+    // 单条请求成本：prompt/1e6 * prompt单价 + completion/1e6 * completion单价
+    const costOf = (realModel: string, pt: number, ct: number): number => {
+      const pr = priceMap.get(realModel);
+      if (!pr) return 0;
+      return (pt / 1_000_000) * pr.prompt + (ct / 1_000_000) * pr.completion;
+    };
 
     const path = getAccessLogPath();
     let lines: string[] = [];
@@ -564,6 +605,7 @@ export function createAdminApp(
     let totalPrompt = 0;
     let totalCompletion = 0;
     let totalTokens = 0;
+    let totalCost = 0;
     const latencies: number[] = [];
     const byAlias = new Map<string, Agg>();
     const byKey = new Map<string, Agg>();
@@ -598,13 +640,17 @@ export function createAdminApp(
       totalCompletion += ct;
       totalTokens += tt;
 
+      const realModel = (r.realModel as string) || '';
+      const cost = costOf(realModel, pt, ct);
+      totalCost += cost;
+
       const alias = (r.alias as string) || '(unknown)';
       const key = (r.key as string) || '(unknown)';
       const day = new Date(ts).toISOString().slice(0, 10); // YYYY-MM-DD
 
-      bump(byAlias, alias, { req: 1, fail: isFail ? 1 : 0, tokens: tt, ms });
-      bump(byKey, key, { req: 1, fail: isFail ? 1 : 0, tokens: tt, ms });
-      bump(byDay, day, { req: 1, fail: isFail ? 1 : 0, tokens: tt, ms });
+      bump(byAlias, alias, { req: 1, fail: isFail ? 1 : 0, tokens: tt, cost, ms });
+      bump(byKey, key, { req: 1, fail: isFail ? 1 : 0, tokens: tt, cost, ms });
+      bump(byDay, day, { req: 1, fail: isFail ? 1 : 0, tokens: tt, cost, ms });
     }
 
     // p95 延迟
@@ -617,6 +663,7 @@ export function createAdminApp(
           failures: v.fail,
           successRate: v.req > 0 ? +((1 - v.fail / v.req) * 100).toFixed(2) : 100,
           tokens: v.tokens,
+          cost: +v.cost.toFixed(6),
           p95Ms: percentile(v.latencies, 0.95),
         }))
         .sort((a, b) => b.requests - a.requests);
@@ -632,6 +679,7 @@ export function createAdminApp(
         promptTokens: totalPrompt,
         completionTokens: totalCompletion,
         totalTokens,
+        cost: +totalCost.toFixed(6),
         p95Ms: p95,
       },
       byAlias: toArr(byAlias),

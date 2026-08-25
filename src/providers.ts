@@ -272,3 +272,88 @@ export async function chatWithFailover(
     errors,
   };
 }
+
+/**
+ * 按别名做有序 failover 的 embeddings 调用（OpenAI 兼容 /v1/embeddings）。
+ * 与 chat 类似逐个尝试 targets，非 2xx/网络错误切下一个；成功即返回（改写 model 为别名）。
+ * 非流式 JSON 透传，不做 SSE 改写。
+ */
+export async function embeddingsWithFailover(
+  cfg: Config,
+  alias: string,
+  body: Record<string, unknown>,
+  fetchImpl: typeof fetch = fetch,
+): Promise<ChatResult> {
+  const targets = cfg.aliases[alias];
+  const errors: AttemptError[] = [];
+  const timeoutMs = cfg.timeout_seconds * 1000;
+
+  for (const target of targets) {
+    const { providerName, model } = parseTarget(target);
+    const provider = cfg.providers[providerName];
+    const upstreamBody = { ...body, model };
+    const headers = {
+      'content-type': 'application/json',
+      authorization: `Bearer ${provider.api_key}`,
+    };
+    const url = `${provider.base_url}/embeddings`;
+
+    try {
+      const res = await fetchImpl(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(upstreamBody),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new UpstreamError(extractErrorMessage(text) ?? `upstream ${res.status} ${res.statusText}`, res.status);
+      }
+
+      const j: unknown = await res.json().catch(() => null);
+      if (!j || typeof j !== 'object') {
+        throw new UpstreamError('upstream 返回了非 JSON 响应体');
+      }
+      const json = j as Record<string, unknown>;
+      json.model = alias; // 改写 model 为别名
+      return {
+        res: new Response(JSON.stringify(json), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+        realModel: `${providerName}:${model}`,
+        usageBox: { usage: null },
+        errors,
+      };
+    } catch (e) {
+      errors.push({
+        target,
+        message: e instanceof Error ? e.message : String(e),
+        status: e instanceof UpstreamError ? e.status : null,
+      });
+      continue;
+    }
+  }
+
+  // 全部失败
+  const last = errors[errors.length - 1];
+  const status = last?.status && last.status >= 400 && last.status < 500 ? last.status : 502;
+  const detail = errors.map((e) => `${e.target}: ${e.message}`).join('; ');
+  const bodyErr = {
+    error: {
+      message: `别名 "${alias}" 的所有 provider 都失败了（${errors.length} 个目标）: ${detail}`,
+      type: 'upstream_error',
+      code: 'upstream_failed',
+    },
+  };
+  return {
+    res: new Response(JSON.stringify(bodyErr), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    }),
+    realModel: '',
+    usageBox: { usage: null },
+    errors,
+  };
+}
