@@ -105,7 +105,7 @@ function clearPricing(p: ProviderRow): void {
 </script>
 
 <template>
-  <n-card size="small" class="soft-card">
+  <n-card size="small" class="soft-card has-sticky-actions">
     <template #header>
       <span class="card-title"><n-icon :size="16"><ServerOutline /></n-icon> 提供商（providers）</span>
     </template>
@@ -224,6 +224,11 @@ function clearPricing(p: ProviderRow): void {
                 <n-button v-else size="tiny" tertiary @click="clearPricing(p)">清除</n-button>
               </div>
               <template v-if="p.pricing">
+                <div class="pricing-header">
+                  <span class="pricing-col-model">模型</span>
+                  <span class="pricing-col-num">输入单价/1M</span>
+                  <span class="pricing-col-num">输出单价/1M</span>
+                </div>
                 <div v-for="(price, m) in p.pricing" :key="m" class="pricing-row">
                   <span class="pricing-model">{{ m }}</span>
                   <n-input-number v-model:value="price.prompt" :min="0" :step="0.01" placeholder="输入单价/1M" size="small" style="width: 120px" />
@@ -237,15 +242,17 @@ function clearPricing(p: ProviderRow): void {
         </n-collapse-item>
       </n-collapse>
 
-      <n-space justify="space-between">
-        <n-button size="small" @click="addProvider">+ 添加 provider</n-button>
-        <n-button type="primary" :loading="store.saving" @click="onSave">
-          <template #icon><n-icon><SaveOutline /></n-icon></template>
-          保存
-        </n-button>
-      </n-space>
     </n-space>
   </n-card>
+  <!-- 保存栏移出 n-card：fixed 钉在视口底部，长页面任何位置都可直接点保存；
+       留在卡片内会被卡片 hover 的 transform 触发 containing block 而错位 -->
+  <div class="sticky-actions">
+    <n-button size="small" @click="addProvider">+ 添加 provider</n-button>
+    <n-button type="primary" :loading="store.saving" @click="onSave">
+      <template #icon><n-icon><SaveOutline /></n-icon></template>
+      保存
+    </n-button>
+  </div>
 </template>
 
 <style lang="scss">
@@ -294,6 +301,26 @@ function clearPricing(p: ProviderRow): void {
   background: #f7f8fa;
   border: 1px solid #eef0f3;
   border-radius: 10px;
+}
+.pricing-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+}
+.pricing-header .pricing-col-model {
+  flex: 1;
+  min-width: 0;
+}
+.pricing-header .pricing-col-num {
+  width: 120px;
+  flex-shrink: 0;
+  text-align: center;
 }
 .pricing-row {
   display: flex;

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch, h, markRaw, provide } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch, h, markRaw, provide, nextTick } from 'vue';
 import { NIcon, NDropdown, NAlert, NButton } from 'naive-ui';
 import {
   LogOutOutline,
@@ -91,6 +91,36 @@ function onHashChange(): void {
 }
 onMounted(() => window.addEventListener('hashchange', onHashChange));
 onUnmounted(() => window.removeEventListener('hashchange', onHashChange));
+
+// 保存栏（.sticky-actions）用 position:fixed 钉在视口底部，需与 .section-body 内卡片
+// 左右边缘精确对齐。直接测量 .section-body 的真实视口坐标写入 --sticky-left / --sticky-right
+// 变量，避免用 100vw 计算时受 Windows 经典滚动条宽度影响产生约 8px 偏移，也自动适配
+// 导航宽度 / 响应式断点变化（导航变横向、内容满宽时测量值自动更新）。
+function updateStickyBounds(): void {
+  const body = document.querySelector<HTMLElement>('.section-body');
+  if (!body) return;
+  const rect = body.getBoundingClientRect();
+  const root = document.documentElement;
+  root.style.setProperty('--sticky-left', `${Math.round(rect.left)}px`);
+  root.style.setProperty('--sticky-right', `${Math.round(window.innerWidth - rect.right)}px`);
+}
+let stickyRO: ResizeObserver | null = null;
+watch(
+  () => auth.state,
+  (s) => {
+    if (s !== 'ok') return;
+    nextTick(() => {
+      const body = document.querySelector<HTMLElement>('.section-body');
+      if (!body) return;
+      updateStickyBounds();
+      stickyRO?.disconnect();
+      stickyRO = new ResizeObserver(updateStickyBounds);
+      stickyRO.observe(body);
+    });
+  },
+  { immediate: true }
+);
+onUnmounted(() => stickyRO?.disconnect());
 
 const sections = computed<SectionItem[]>(() => [
   { key: 'access', label: '接入信息', icon: markRaw(LinkOutline) },
@@ -222,13 +252,54 @@ async function onCheckConfig(): Promise<void> {
   min-width: 0;
 }
 
+/* 吸底操作栏：position:fixed 钉在视口底部，长页面任意滚动位置都可直接点保存。
+   必须放在 n-card 之外（卡片 hover 的 transform 会让 fixed 退化为相对卡片定位而错位）。
+   毛玻璃背景压住下方内容，避免文字穿透干扰。
+   左右用 left/right 公式与 .section-body 内卡片边缘精确对齐：
+     - 居中偏移 = max(0, (100vw-1200)/2)：视口≥1200 时 page-wrap 居中产生的偏移；
+       视口<1200 时 page-wrap 撑满、偏移为 0（避免公式给出负偏移）。
+     - left  = 居中偏移 + 左内边距(24) + 导航宽 + 间距
+     - right = 居中偏移 + 右内边距(24)
+   由 left/right 自动决定宽度，不再写死 width，故与卡片完全同宽、左右对齐。 */
+.sticky-actions {
+  position: fixed;
+  /* 左右由 JS 测量 .section-body 真实坐标写入的 --sticky-left / --sticky-right 决定，
+     与卡片左右边缘精确对齐（不受滚动条宽度 / 导航宽 / 响应式影响）。
+     fallback 24px 仅用于 JS 注入前的首帧。 */
+  left: var(--sticky-left, 24px);
+  right: var(--sticky-right, 24px);
+  bottom: 16px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid #eef0f3;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.18);
+}
+/* 带吸底栏的版块：卡片底部留白，避免滚到最底部时最后一行内容被固定栏遮挡 */
+.has-sticky-actions {
+  margin-bottom: 88px;
+}
+/* 单一按钮时靠右（如「保存」独占一行） */
+.sticky-actions--end {
+  justify-content: flex-end;
+}
+
 /* 页面外层容器：分版块后左侧导航占宽，整体放宽到 1200px；移动端收窄（见媒体查询）
-   overflow-x:hidden 兜底，避免内部任何溢出撑出页面横向滚动 */
+   用 overflow-x:clip（而非 hidden）兜底横向溢出：
+   clip 不会创建滚动容器，故内部 position:sticky 元素仍可相对视口（窗口）生效，
+   底部保存栏才能正确吸附；hidden 会把 .page-wrap 变成滚动容器而吃掉 sticky */
 .page-wrap {
   max-width: 1200px;
   margin: 0 auto;
   padding: 24px;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 /* 登录态：清零外层 padding，避免与 .auth-screen 的 100dvh 叠加溢出屏幕 */
 .page-wrap--auth {
@@ -305,6 +376,11 @@ async function onCheckConfig(): Promise<void> {
   .section-layout {
     flex-direction: column;
     gap: 10px;
+  }
+  /* 吸底操作栏：窄屏由 JS 测量 .section-body 自动对齐，覆盖桌面 fallback 值 */
+  .sticky-actions {
+    padding: 10px 12px;
+    bottom: 10px;
   }
 }
 </style>

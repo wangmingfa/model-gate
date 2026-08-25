@@ -120,7 +120,7 @@ async function onSave(): Promise<void> {
 </script>
 
 <template>
-  <n-card size="small" class="soft-card alias-card">
+  <n-card size="small" class="soft-card alias-card has-sticky-actions">
     <template #header>
       <span class="card-title"><n-icon :size="16"><GitBranchOutline /></n-icon> 模型别名（aliases，agent 只认别名）</span>
     </template>
@@ -200,15 +200,16 @@ async function onSave(): Promise<void> {
           </ItemCard>
         </n-collapse-item>
       </n-collapse>
-      <n-space justify="space-between">
-        <n-button size="small" @click="addAlias">+ 添加别名</n-button>
-        <n-button type="primary" :loading="store.saving" @click="onSave">
-          <template #icon><n-icon><SaveOutline /></n-icon></template>
-          保存
-        </n-button>
-      </n-space>
     </n-space>
   </n-card>
+  <!-- 保存栏移出 n-card：fixed 钉在视口底部，长页面任何位置都可直接点保存 -->
+  <div class="sticky-actions">
+    <n-button size="small" @click="addAlias">+ 添加别名</n-button>
+    <n-button type="primary" :loading="store.saving" @click="onSave">
+      <template #icon><n-icon><SaveOutline /></n-icon></template>
+      保存
+    </n-button>
+  </div>
 </template>
 
 <style>
