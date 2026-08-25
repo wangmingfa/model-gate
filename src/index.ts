@@ -188,12 +188,27 @@ if (subcommand?.startsWith('upgrade')) {
     if (bunPath) {
       console.log(`[model-gate] 正在用 bun 升级到 ${tag} 版本: ${spec}`);
       const proc = Bun.spawn(['bun', 'install', '-g', spec], {
-        stdout: 'inherit',
+        stdout: 'pipe',
         stderr: 'inherit',
       });
+      // 流式转发 stdout（保留实时进度），同时收集文本用于解析真实版本号
+      let outBuf = '';
+      const reader = proc.stdout.getReader();
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        outBuf += chunk;
+        process.stdout.write(chunk);
+      }
       const code = await proc.exited;
       if (code === 0) {
-        console.log(`\n✅ 已升级到 ${spec}，请重启 model-gate 生效`);
+        // 从 bun 安装输出解析真实解析到的版本（如 0.0.1-beta.7），而非 tag（@beta）
+        const m = outBuf.match(/installed\s+@?[\w/-]+@([\w.-]+)/);
+        const resolved = m?.[1] ?? null;
+        const finalSpec = resolved ? `@${pkgName}@${resolved}` : spec;
+        console.log(`\n✅ 已升级到 ${finalSpec}，请重启 model-gate 生效`);
         process.exit(0);
       }
       // bun 报错但不一定是「找不到 bun」—— 仍提示安装以确保清晰
