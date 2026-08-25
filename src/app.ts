@@ -174,6 +174,11 @@ export function createApp(
     ),
   );
 
+  // favicon 兜底：浏览器在 /admin（无末尾斜杠）时把相对 logo.svg 解析成根路径
+  // /logo.svg，Hono 又不会为此发 302（内部归一化到 /admin/ 但仍返回 200），
+  // 故把根 /logo.svg 重定向到已能正常服务的 /admin/logo.svg，避免标签栏 favicon 404。
+  app.get('/logo.svg', (c) => c.redirect('/admin/logo.svg'));
+
   // 管理界面（SPA + /admin/api/*），挂载在最后，避免被 /v1/* 的 501 catch-all 拦截
   app.route('/admin', createAdminApp(getConfig, opts?.configPath, { includeStatic: opts?.includeAdminStatic ?? true }));
 
