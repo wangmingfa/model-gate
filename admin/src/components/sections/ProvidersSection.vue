@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, watch, h } from 'vue';
-import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NDynamicInput, NTag, NIcon, NDataTable, NEmpty, NInputNumber } from 'naive-ui';
+import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NTag, NIcon, NDataTable, NEmpty, NInputNumber, NTooltip } from 'naive-ui';
 import { ServerOutline, SaveOutline, SpeedometerOutline } from '@vicons/ionicons5';
 import { useConfigStore, type ProviderRow } from '../../configStore';
 import ItemCard from '../ItemCard.vue';
+import SortableList from '../SortableList.vue';
 import { testAllProviders, type ProviderLatency } from '../../api';
 
 const store = useConfigStore();
@@ -21,7 +22,7 @@ function nextRowId(): string {
 
 function addProvider(): void {
   const id = nextRowId();
-  draft.value.push({ _id: id, name: '', base_url: '', api_key: '', models: [] });
+  draft.value.push({ _id: id, name: '', base_url: '', api_key: '', models: [], modelRowIds: [] });
   expandedNames.value.push(id); // 新行默认展开
 }
 
@@ -102,6 +103,33 @@ function initPricing(p: ProviderRow): void {
 function clearPricing(p: ProviderRow): void {
   p.pricing = undefined;
 }
+/** 取某模型在当前 provider 逐模型测试中的结果（无结果/正在测试时返回 undefined） */
+function modelResult(p: ProviderRow, model: string): ProviderLatency | undefined {
+  const entry = store.modelTests[p.name];
+  if (!entry || entry.testing) return undefined;
+  return entry.results.find((r) => r.model === model);
+}
+
+// 基于实测结果给出友好解读（不靠模型名猜测类型，完全依据上游真实返回）
+function friendlyReason(r: ProviderLatency): string {
+  if (r.ok) return '可用';
+  // 网络层不可达 / 超时：pingOnce 已把 message 写成可读中文
+  if (r.status == null) return r.error || '未知错误';
+  switch (r.status) {
+    case 404:
+      return 'chat 接口返回 404：该模型在此端点不可用。可能是图像生成 / embeddings 等非对话模型，也可能是模型名拼写有误。';
+    case 401:
+    case 403:
+      return '鉴权失败（401/403）：API Key 无效，或该 Key 无此模型权限。';
+    case 429:
+      return '触发限流（429）：请求过于频繁或配额已耗尽，稍后重试。';
+    case 400:
+      return '请求被拒（400）：模型名或参数可能不被该端点接受。';
+    default:
+      if (r.status >= 500) return `上游服务异常（${r.status}），可稍后重试。`;
+      return `请求失败（${r.status}）。`;
+  }
+}
 </script>
 
 <template>
@@ -115,13 +143,13 @@ function clearPricing(p: ProviderRow): void {
         <div class="latency-toolbar">
           <n-button size="small" :loading="testingAll" @click="onTestAll">
             <template #icon><n-icon><SpeedometerOutline /></n-icon></template>
-            测试所有提供商延迟
+            测试所有模型延迟
           </n-button>
-          <span v-if="testingAll" class="latency-hint">正在探测各 provider 首个模型…</span>
+          <span v-if="testingAll" class="latency-hint">正在逐模型探测可用性与延迟…</span>
         </div>
 
         <div v-if="latencyResults || latencyError" class="latency-block">
-          <div class="trend-title">提供商延迟（探测各 provider 首个模型）</div>
+          <div class="trend-title">各模型延迟（逐模型 1-token 探测）</div>
           <n-empty v-if="latencyError" description="请求失败" />
           <n-empty v-else-if="latencyResults && latencyResults.length === 0" description="尚未配置任何 provider" />
           <n-data-table
@@ -204,13 +232,67 @@ function clearPricing(p: ProviderRow): void {
                   >
                     拉取模型
                   </n-button>
+                  <n-button
+                    size="tiny"
+                    type="info"
+                    secondary
+                    :loading="store.modelTests[p.name]?.testing"
+                    :disabled="!p.models.length"
+                    @click="store.onTestAllModels(p)"
+                    style="pointer-events: auto"
+                  >
+                    测试所有模型
+                  </n-button>
+                  <span
+                    v-if="store.modelTests[p.name] && !store.modelTests[p.name]!.testing && store.modelTests[p.name]!.results.length"
+                    class="model-test-summary"
+                  >
+                    {{ store.modelTests[p.name]!.results.filter((r) => r.ok).length }}/{{
+                      store.modelTests[p.name]!.results.length
+                    }}
+                    可用
+                  </span>
                 </span>
               </template>
-              <n-dynamic-input v-model:value="p.models" :show-sort-button="true" placeholder="模型 id，如 deepseek-chat" style="width: 100%">
-                <template #create-button-default>
-                  添加模型
+              <SortableList
+                v-model:items="p.models"
+                v-model:rowIds="p.modelRowIds"
+                add-label="+ 添加模型"
+              >
+                <template #item="{ items, index }">
+                  <n-input v-model:value="items[index]" placeholder="模型 id，如 deepseek-chat" style="flex: 1; min-width: 0" />
+                  <!-- 该模型逐模型测试结果：输入框右侧标签，hover 显示详情 -->
+                  <n-tooltip v-if="modelResult(p, items[index])" trigger="hover" placement="left">
+                    <template #trigger>
+                      <n-tag
+                        :type="modelResult(p, items[index])!.ok ? 'success' : 'error'"
+                        size="small"
+                        :bordered="false"
+                        class="model-result-tag"
+                      >
+                        {{ modelResult(p, items[index])!.ok ? '可用' : '不可用' }}
+                      </n-tag>
+                    </template>
+                    <div class="model-result-tip">
+                      <div><b>模型</b>：{{ modelResult(p, items[index])!.model }}</div>
+                      <div>
+                        <b>延迟</b>：{{
+                          modelResult(p, items[index])!.ok ? `${modelResult(p, items[index])!.ms}ms` : '—'
+                        }}
+                      </div>
+                      <div v-if="modelResult(p, items[index])!.status != null">
+                        <b>状态码</b>：{{ modelResult(p, items[index])!.status }}
+                      </div>
+                      <div v-if="!modelResult(p, items[index])!.ok">
+                        <b>提示</b>：{{ friendlyReason(modelResult(p, items[index])!) }}
+                      </div>
+                      <div v-if="!modelResult(p, items[index])!.ok && modelResult(p, items[index])!.error" class="model-result-raw">
+                        <b>原始返回</b>：{{ modelResult(p, items[index])!.error }}
+                      </div>
+                    </div>
+                  </n-tooltip>
                 </template>
-              </n-dynamic-input>
+              </SortableList>
             </n-form-item>
             <div v-if="store.fetchStates[p.name]?.result" style="font-size: 12px">
               <n-tag :type="store.fetchStates[p.name]?.ok ? 'success' : 'error'" size="small">
@@ -293,6 +375,36 @@ function clearPricing(p: ProviderRow): void {
    只在按钮本身（pointer-events:auto）可点，点 label 空白不再误触发拉取 */
 .model-list-item .n-form-item-label {
   pointer-events: none;
+}
+
+/* 每模型测试结果标签：紧贴输入框右侧；flex-shrink:0 防止被输入框挤压 */
+.model-result-tag {
+  flex-shrink: 0;
+  cursor: default;
+}
+/* tooltip 内的详情排版 */
+.model-result-tip {
+  font-size: 12px;
+  line-height: 1.7;
+  max-width: 320px;
+  word-break: break-word;
+  white-space: normal;
+}
+.model-result-tip b {
+  color: #cbd5e1;
+  font-weight: 600;
+}
+/* 原始上游返回：弱化显示，细节备查 */
+.model-result-raw {
+  color: #94a3b8;
+  font-size: 11px;
+  line-height: 1.5;
+  opacity: 0.85;
+}
+/* 按钮旁「x/y 可用」汇总 */
+.model-test-summary {
+  font-size: 12px;
+  color: #6b7280;
 }
 
 .pricing-block {

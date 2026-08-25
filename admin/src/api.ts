@@ -137,7 +137,7 @@ export function fetchModels(
 export interface ProviderLatency {
   /** provider 名称 */
   provider: string;
-  /** 实际探测用的模型（取该 provider 的 models[0]） */
+  /** 实际探测用的模型 id（逐模型各一行） */
   model: string;
   /** 探测是否成功（HTTP 2xx 且拿到响应） */
   ok: boolean;
@@ -149,9 +149,15 @@ export interface ProviderLatency {
   error?: string;
 }
 
-/** 一键测试所有提供商的延迟：后端并发探测每个 provider 的第一个模型，返回各 provider 耗时与成败 */
+/** 一键测试所有提供商的延迟：后端并发探测每个 provider 的每一个模型，返回逐 (provider, model) 耗时与成败 */
 export function testAllProviders(): Promise<{ results: ProviderLatency[] }> {
   return request('/providers/latency', { method: 'POST' });
+}
+
+/** 测试「指定 provider」的全部模型可用性与延迟：向 /providers/latency 传 { provider } 做过滤，
+ *  返回该 provider 下每个模型的探测结果（与 testAllProviders 同构，仅限制单个 provider）。 */
+export function testProviderModels(provider: string): Promise<{ results: ProviderLatency[] }> {
+  return request('/providers/latency', { method: 'POST', body: JSON.stringify({ provider }) });
 }
 
 // ---- 登录 / 登出 / 登录状态 ----

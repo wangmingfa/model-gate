@@ -5,12 +5,14 @@ import {
   getConfig,
   saveConfig,
   testConnection,
+  testProviderModels,
   fetchModels,
   generateKey,
   checkConfig,
   type ConfigDraft,
   type ClientKeyDraft,
   type ConfigIssue,
+  type ProviderLatency,
 } from './api';
 import { copyText } from './utils';
 
@@ -23,6 +25,9 @@ export interface ProviderRow {
   base_url: string;
   api_key: string;
   models: string[];
+  /** 模型行稳定 ID（本地生成，仅前端追踪用，不进配置草稿）：用做模型列表 v-for :key，
+   *  使排序/置顶动画（TransitionGroup FLIP）能稳定追踪每一行，且编辑模型名时不会因 key 变化失焦 */
+  modelRowIds?: string[];
   /** 模型计费单价（每 1M tokens），可选；键为模型 id */
   pricing?: Record<string, { prompt: number; completion: number }>;
 }
@@ -31,6 +36,9 @@ export interface AliasRow {
   _id: string;
   name: string;
   targets: string[];
+  /** 目标模型行稳定 ID（本地生成，仅前端追踪用，不进配置草稿）：用作目标列表 v-for :key，
+   *  使排序/置顶动画（TransitionGroup FLIP）能稳定追踪每一行 */
+  targetRowIds: string[];
 }
 
 /** 检查结果里的错误 target -> 所属版块：查出错误后自动跳过去看标红 */
@@ -90,6 +98,8 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
 
   // 测试连接状态：providerName -> { testing, result }
   const testStates = ref<Record<string, { testing: boolean; result: string; ok: boolean }>>({});
+  // 逐模型测试（「测试所有模型」按钮）：providerName -> { testing, results, error }
+  const modelTests = ref<Record<string, { testing: boolean; results: ProviderLatency[]; error?: string }>>({});
   // 拉取模型状态：providerName -> { fetching, result }（与 testStates 共用错误展示区）
   const fetchStates = ref<Record<string, { fetching: boolean; result: string; ok: boolean }>>({});
 
@@ -131,17 +141,22 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
           // 清空框保存时后端 resolveApiKey 仍按「保持原值」处理（不会误删），填新值则覆盖。
           api_key: p.api_key,
           models: [...p.models],
+          modelRowIds: p.models.map(() => nextRowId()),
           pricing: p.pricing ? JSON.parse(JSON.stringify(p.pricing)) : undefined,
         };
         ensurePricing(row); // 默认就让计费单价区可见（外显）
         return row;
       });
       // 服务端 aliases 的 value 是单个 "provider:model" 字符串（兼容个别历史数组写法）
-      aliases.value = Object.entries(cfg.aliases).map(([name, targets]) => ({
-        _id: nextRowId(),
-        name,
-        targets: Array.isArray(targets) ? [...targets] : [targets],
-      }));
+      aliases.value = Object.entries(cfg.aliases).map(([name, targets]) => {
+        const t = Array.isArray(targets) ? [...targets] : [targets];
+        return {
+          _id: nextRowId(),
+          name,
+          targets: t,
+          targetRowIds: t.map(() => nextRowId()),
+        };
+      });
     } catch (e) {
       loadError.value = (e as Error).message;
     } finally {
@@ -150,12 +165,12 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
   }
 
   function addProvider(): void {
-    const row: ProviderRow = { _id: nextRowId(), name: '', base_url: '', api_key: '', models: [], pricing: undefined };
+    const row: ProviderRow = { _id: nextRowId(), name: '', base_url: '', api_key: '', models: [], modelRowIds: [], pricing: undefined };
     ensurePricing(row); // 默认空单价表，计费单价区立即可见
     providers.value.push(row);
   }
   function addAlias(): void {
-    aliases.value.push({ _id: nextRowId(), name: '', targets: [] });
+    aliases.value.push({ _id: nextRowId(), name: '', targets: [], targetRowIds: [] });
   }
 
   async function copyApiBaseUrl(): Promise<void> {
@@ -261,6 +276,23 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
     }
   }
 
+  /** 一键测试「当前 provider」的全部模型可用性与延迟：
+   *  复用后端的 /providers/latency（传 { provider } 做过滤），逐模型并发探测，
+   *  结果按 provider 名存入 modelTests，供卡片内联展示。无需先保存配置（测的是已部署配置）。 */
+  async function onTestAllModels(provider: ProviderRow): Promise<void> {
+    if (!provider.models.length) {
+      message.warning('该 provider 还没有模型，先添加模型');
+      return;
+    }
+    modelTests.value[provider.name] = { testing: true, results: [], error: undefined };
+    try {
+      const r = await testProviderModels(provider.name);
+      modelTests.value[provider.name] = { testing: false, results: r.results, error: undefined };
+    } catch (e) {
+      modelTests.value[provider.name] = { testing: false, results: [], error: (e as Error).message };
+    }
+  }
+
   /** 一键拉取上游模型列表并回填到该 provider 的 models 字段（草稿优先、服务端回退；
    *  与现有手动添加项去重合并，不覆盖用户已填内容）。无需先保存配置。 */
   async function onFetchModels(provider: ProviderRow): Promise<void> {
@@ -284,11 +316,13 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
       }
       // 去重合并：保留已有 + 追加上游返回的新 id（顺序：已有在前，新查到的在后）
       const seen = new Set(provider.models);
+      const ids = provider.modelRowIds ?? (provider.modelRowIds = []);
       let added = 0;
       for (const m of r.models) {
         if (!seen.has(m)) {
           seen.add(m);
           provider.models.push(m);
+          ids.push(nextRowId());
           added++;
         }
       }
@@ -419,6 +453,7 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
     defaultModelOptions,
     apiBaseUrl,
     testStates,
+    modelTests,
     fetchStates,
     // 动作
     load,
@@ -432,6 +467,7 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
     removeProviderConfirm,
     removeAliasConfirm,
     onTest,
+    onTestAllModels,
     onFetchModels,
     autoSave,
     scheduleAutoSave,

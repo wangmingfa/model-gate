@@ -253,7 +253,7 @@ async function onCheckConfig(): Promise<void> {
 }
 
 /* 吸底操作栏：position:fixed 钉在视口底部，长页面任意滚动位置都可直接点保存。
-   必须放在 n-card 之外（卡片 hover 的 transform 会让 fixed 退化为相对卡片定位而错位）。
+   左右用 left/right 公式与 .section-body 内卡片边缘精确对齐（由 JS 测量 section-body 实时写入 CSS 变量）。
    毛玻璃背景压住下方内容，避免文字穿透干扰。
    左右用 left/right 公式与 .section-body 内卡片边缘精确对齐：
      - 居中偏移 = max(0, (100vw-1200)/2)：视口≥1200 时 page-wrap 居中产生的偏移；
@@ -337,15 +337,14 @@ async function onCheckConfig(): Promise<void> {
   background: rgba(255, 255, 255, 0.28);
 }
 
-/* 卡片美化：圆角 + 柔和阴影 + hover 微浮起（供各版块共用） */
+/* 卡片美化：圆角 + 柔和阴影（仅阴影随 hover 加深，不做位移） */
 .soft-card {
   border-radius: 14px;
   box-shadow: 0 4px 16px rgba(99, 102, 241, 0.08);
-  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  transition: box-shadow 0.2s ease;
 }
 .soft-card:hover {
   box-shadow: 0 8px 24px rgba(99, 102, 241, 0.16);
-  transform: translateY(-2px);
 }
 
 /* ---- 移动端适配 ---- */

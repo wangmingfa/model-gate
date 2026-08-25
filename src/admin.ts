@@ -517,28 +517,42 @@ export function createAdminApp(
     }
   });
 
-  // 一键测试所有提供商的延迟：用各 provider 第一个模型发 1-token 探测，并发执行。
-  // 返回每个 provider 的延迟与成败，供前端一键对比各上游响应速度。
+  // 一键测试所有模型的可用性与延迟：遍历每个 provider 的每一个模型，
+  // 并发发 1-token 探测，返回每个 (provider, model) 的延迟与成败。
+  // 可选 body { provider }：仅测该 provider 的模型（供「当前 provider 测试全部模型」按钮复用）。
   admin.post('/api/providers/latency', async (c) => {
     const cfg = getConfig();
+    const body = (await c.req.json().catch(() => ({}))) as { provider?: unknown };
+    const onlyProvider =
+      typeof body?.provider === 'string' && body.provider.trim() ? body.provider.trim() : null;
     // 延迟探测单次超时封顶 60s（1 分钟）：足够识别慢/不可达的上游，
     // 又远低于服务器 idleTimeout（180s），并发整批不会触发服务端超时
     const timeoutMs = Math.min(
       (typeof cfg.timeout_seconds === 'number' && cfg.timeout_seconds > 0 ? cfg.timeout_seconds : 60) * 1000,
       60000,
     );
-    // 用 allSettled 而非 all：即使个别 provider 探测意外抛错（理论上 pingOnce 已全 catch），
-    // 也不会让整个接口 500，而是把该 provider 记为失败行，保证汇总结果始终完整
-    const settled = await Promise.allSettled(
-      Object.entries(cfg.providers).map(async ([name, p]) => {
-        const model = p.models[0];
-        if (!model) {
-          return { provider: name, model: '', ok: false, error: '未配置模型' };
-        }
-        const r = await pingOnce(p.base_url, p.api_key, model, timeoutMs);
-        return { provider: name, model, ...r };
-      }),
-    );
+    // 展开成「每个 provider × 每个模型」的探测任务；无模型的 provider 记为单行失败
+    const tasks: Promise<{ provider: string; model: string; ok: boolean; ms?: number; status?: number | null; error?: string }>[] =
+      [];
+    for (const [name, p] of Object.entries(cfg.providers)) {
+      // 按 provider 过滤（指定了 onlyProvider 时只测该 provider）
+      if (onlyProvider && name !== onlyProvider) continue;
+      if (!p.models.length) {
+        tasks.push(Promise.resolve({ provider: name, model: '', ok: false, error: '未配置模型' }));
+        continue;
+      }
+      for (const model of p.models) {
+        tasks.push(
+          (async () => {
+            const r = await pingOnce(p.base_url, p.api_key, model, timeoutMs);
+            return { provider: name, model, ...r };
+          })(),
+        );
+      }
+    }
+    // 用 allSettled 而非 all：即使个别探测意外抛错（理论上 pingOnce 已全 catch），
+    // 也不会让整个接口 500，而是把该任务记为失败行，保证汇总结果始终完整
+    const settled = await Promise.allSettled(tasks);
     const results = settled.map((s) =>
       s.status === 'fulfilled'
         ? s.value

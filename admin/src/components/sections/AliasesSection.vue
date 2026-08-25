@@ -2,12 +2,13 @@
 import { ref, watch, computed, onMounted } from 'vue';
 import type { SelectOption, SelectGroupOption } from 'naive-ui';
 import {
-  NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NSelect, NIcon, NDynamicInput, NTag,
+  NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NSelect, NIcon, NTag,
 } from 'naive-ui';
 import { GitBranchOutline, SaveOutline } from '@vicons/ionicons5';
 import { useConfigStore, type AliasRow } from '../../configStore';
 import { getAliasStatus, type AliasStatus } from '../../api';
 import ItemCard from '../ItemCard.vue';
+import SortableList from '../SortableList.vue';
 
 const store = useConfigStore();
 
@@ -148,28 +149,21 @@ async function onSave(): Promise<void> {
                   <n-tag size="tiny" :bordered="false" type="default">顺序即 failover 优先级</n-tag>
                 </span>
               </template>
-              <n-dynamic-input
-                v-model:value="a.targets"
-                :on-create="() => null"
-                :show-sort-button="true"
-                placeholder="选择提供商下的模型"
-                style="width: 100%"
+              <SortableList
+                v-model:items="a.targets"
+                v-model:rowIds="a.targetRowIds"
+                add-label="添加目标"
               >
-                <template #default="{ index }">
-                  <div style="flex: 1 1 0; min-width: 0">
-                    <n-select
-                      v-model:value="a.targets[index]"
-                      :options="optionsFor(a, index)"
-                      placeholder="选择提供商下的模型"
-                      class="alias-target-select"
-                      style="width: 100%"
-                    />
-                  </div>
+                <template #item="{ items, index }">
+                  <n-select
+                    v-model:value="items[index]"
+                    :options="optionsFor(a, index)"
+                    placeholder="选择提供商下的模型"
+                    class="alias-target-select"
+                    style="flex: 1; min-width: 0"
+                  />
                 </template>
-                <template #create-button-default>
-                  添加目标
-                </template>
-              </n-dynamic-input>
+              </SortableList>
             </n-form-item>
             <n-form-item style="margin-bottom: 0">
               <template #label>
