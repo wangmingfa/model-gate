@@ -35,14 +35,31 @@ const PKG_PATH = resolve(import.meta.dir, '..', 'package.json');
  */
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 async function withSpinner<T>(text: string, fn: () => Promise<T>): Promise<T> {
+  const start = Date.now();
+  const elapsed = () => Math.floor((Date.now() - start) / 1000);
+
   if (!process.stdout.isTTY) {
-    // 非交互终端（CI / 管道）：只打印静态提示，不做动画
+    // 非交互终端（CI / 管道 / 沙箱日志）：静态提示 + 周期性「已等待 Ns」，
+    // 避免 npm 查询较慢时整段静默、看起来像卡死
     process.stdout.write(`⏳ ${text}...\n`);
-    return await fn();
+    const timer = setInterval(() => {
+      process.stdout.write(`   ⏳ 仍在查询... (已等待 ${elapsed()}s)\n`);
+    }, 3000);
+    try {
+      const result = await fn();
+      clearInterval(timer);
+      process.stdout.write(`✔ ${text} (${elapsed()}s)\n`);
+      return result;
+    } catch (e) {
+      clearInterval(timer);
+      process.stdout.write(`✗ ${text}\n`);
+      throw e;
+    }
   }
+
   let frame = 0;
   const timer = setInterval(() => {
-    process.stdout.write(`\r${SPINNER_FRAMES[frame % SPINNER_FRAMES.length]} ${text}...`);
+    process.stdout.write(`\r${SPINNER_FRAMES[frame % SPINNER_FRAMES.length]} ${text}... (${elapsed()}s)`);
     frame++;
   }, 100);
   try {
