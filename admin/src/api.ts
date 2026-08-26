@@ -211,6 +211,33 @@ export interface StatsResponse {
   byDay: StatsRow[];
 }
 
+/** 单次调用明细（点击用量统计行后查看） */
+export interface StatsCall {
+  /** 唯一 id（后端按时间倒序填充，供表格 row-key） */
+  id: number;
+  ts: string;
+  method: string;
+  status: number;
+  ms: number;
+  alias: string;
+  key: string;
+  realModel: string;
+  stream: boolean;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+export interface StatsDetailsResponse {
+  count: number;
+  calls: StatsCall[];
+}
+
+/** 拉取某维度（alias / key）下每次调用的明细 */
+export function getStatsDetails(by: 'alias' | 'key', value: string, days = 30): Promise<StatsDetailsResponse> {
+  return request(`/stats/details?by=${by}&value=${encodeURIComponent(value)}&days=${days}`);
+}
+
 /** 拉取用量统计：仅聚合 /v1/chat/completions 真实流量 */
 export function getStats(days = 30): Promise<StatsResponse> {
   return request(`/stats?days=${days}`);

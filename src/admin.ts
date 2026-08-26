@@ -689,6 +689,66 @@ export function createAdminApp(
     });
   });
 
+  // 单次调用明细：按维度（alias / key）+ 维度值 + 时间范围，返回每次调用的原始记录（倒序）
+  admin.get('/api/stats/details', (c) => {
+    const days = Number(c.req.query('days') ?? '30');
+    const rangeDays = Number.isFinite(days) && days > 0 ? Math.min(days, 365) : 30;
+    const sinceMs = Date.now() - rangeDays * 24 * 60 * 60 * 1000;
+    const by = String(c.req.query('by') ?? '');
+    const rawValue = String(c.req.query('value') ?? '');
+    if (by !== 'alias' && by !== 'key') {
+      return c.json({ error: { message: "by 必须为 'alias' 或 'key'", code: 'bad_request' } }, 400);
+    }
+    if (!rawValue) {
+      return c.json({ error: { message: 'value 不能为空', code: 'bad_request' } }, 400);
+    }
+    // 聚合表里 (unknown) 是「字段缺失」行的合成 key，故 (unknown) 匹配缺失/空的原始字段
+    const target = rawValue === '(unknown)' ? '' : rawValue;
+
+    const path = getAccessLogPath();
+    let lines: string[] = [];
+    try {
+      if (existsSync(path)) lines = readFileSync(path, 'utf-8').split('\n');
+    } catch {
+      lines = [];
+    }
+
+    const out: Array<Record<string, unknown>> = [];
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line) continue;
+      let r: Record<string, unknown>;
+      try {
+        r = JSON.parse(line) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      if (r.path !== '/v1/chat/completions') continue;
+      const ts = typeof r.ts === 'string' ? Date.parse(r.ts) : NaN;
+      if (!Number.isFinite(ts) || ts < sinceMs) continue;
+      const dimVal = String((by === 'alias' ? r.alias : r.key) ?? '');
+      if (dimVal !== target) continue;
+      out.push({
+        id: 0,
+        ts: r.ts,
+        method: r.method ?? 'POST',
+        status: Number(r.status ?? 0),
+        ms: Number(r.ms ?? 0),
+        alias: String(r.alias ?? ''),
+        key: String(r.key ?? ''),
+        realModel: String(r.realModel ?? ''),
+        stream: r.stream === true,
+        promptTokens: Number(r.promptTokens ?? 0) || 0,
+        completionTokens: Number(r.completionTokens ?? 0) || 0,
+        totalTokens: Number(r.totalTokens ?? 0) || 0,
+      });
+    }
+    // 按时间倒序（最新在前），并补唯一 id 供表格 row-key
+    out.sort((a, b) => Date.parse(String(b.ts)) - Date.parse(String(a.ts)));
+    out.forEach((o, i) => (o.id = i));
+    return c.json({ count: out.length, calls: out });
+  });
+
   // 每个别名「最近一次成功请求」实际生效的模型（反映 failover 实际落点）
   admin.get('/api/alias-status', (c) => {
     const path = getAccessLogPath();

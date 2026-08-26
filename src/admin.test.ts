@@ -3,6 +3,7 @@ import { writeFileSync, readFileSync, unlinkSync } from 'node:fs';
 import type { Config } from './config';
 import { validateConfig, loadConfig } from './config';
 import { createApp } from './app';
+import { configureLogging } from './logger';
 
 const tmpPath = `/tmp/mg-admin-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
 
@@ -442,5 +443,59 @@ describe('单模型延迟探测（/api/providers/latency）', () => {
     } finally {
       globalThis.fetch = origFetch;
     }
+  });
+});
+
+describe('单次调用明细（/api/stats/details）', () => {
+  test('按 alias 过滤返回该别名每次调用明细，按时间倒序', async () => {
+    const logPath = `/tmp/mg-details-${Date.now()}-${Math.random().toString(36).slice(2)}.log`;
+    const now = Date.now();
+    const mk = (alias: string, offsetMin: number, status: number, ms: number) => ({
+      ts: new Date(now - offsetMin * 60_000).toISOString(),
+      method: 'POST',
+      path: '/v1/chat/completions',
+      status,
+      ms,
+      alias,
+      key: 'k1',
+      realModel: 'deepseek-chat',
+      stream: false,
+      promptTokens: 10,
+      completionTokens: 5,
+      totalTokens: 15,
+    });
+    const lines = [
+      mk('a', 60, 200, 120), // 较早
+      mk('a', 10, 200, 80), // 较晚（同 alias，应排前）
+      mk('b', 30, 500, 200), // 另一个 alias，应排除
+      { ...mk('a', 5, 200, 90), path: '/v1/other' }, // 非 chat，应排除
+    ];
+    writeFileSync(logPath, lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+    configureLogging(true, logPath);
+    try {
+      const res = await adminReq('/api/stats/details?by=alias&value=a&days=30');
+      expect(res.status).toBe(200);
+      const j = (await res.json()) as {
+        count: number;
+        calls: Array<{ ts: string; status: number; ms: number }>;
+      };
+      // 只统计 alias=a 且 path=/v1/chat/completions 的两条
+      expect(j.count).toBe(2);
+      // 倒序：较晚（ms=80）在前，较早（ms=120）在后
+      expect(j.calls[0].ms).toBe(80);
+      expect(j.calls[1].ms).toBe(120);
+    } finally {
+      unlinkSync(logPath);
+    }
+  });
+
+  test('by 非法时返回 400', async () => {
+    const res = await adminReq('/api/stats/details?by=xxx&value=a');
+    expect(res.status).toBe(400);
+  });
+
+  test('value 为空时返回 400', async () => {
+    const res = await adminReq('/api/stats/details?by=alias&value=');
+    expect(res.status).toBe(400);
   });
 });
