@@ -407,10 +407,11 @@ async function main() {
 
     // 校验算出的新版本是否已被占用（交互模式此前未校验，会直接 publish 撞墙）
     // 若已占用：beta 通道的 iteration 自动顺延 +1，直到找到一个未占用版本；其他情况报错让用户重跑
-    if (await versionExists(pkg.name, newVer)) {
+    // versionExists 是 npm 网络查询，较慢且无输出，用 withSpinner 给出持续 loading（避免看起来卡死）
+    if (await withSpinner(`校验 ${newVer} 是否已被 npm 占用`, () => versionExists(pkg.name, newVer))) {
       if (channel === 'beta' && bump === 'iteration') {
         let guard = 0;
-        while (await versionExists(pkg.name, newVer)) {
+        while (await withSpinner(`校验 ${newVer} 是否已被 npm 占用`, () => versionExists(pkg.name, newVer))) {
           newVer = nextVersion(newVer, channel, 'iteration', false);
           if (++guard > 50) throw new Error('iteration 顺延超过 50 次仍被占用，请检查 npm 版本历史');
         }
@@ -459,9 +460,11 @@ async function main() {
   console.log(`\n✓ package.json version → ${newVer}`);
 
   // 2. build（embed + bun build，产出 model-gate.js）
+  console.log('\n🔧 正在构建产物 model-gate.js（embed + bun build）...');
   await run('bun', ['run', 'build']);
 
   // 3. publish
+  console.log(`\n🚀 正在发布到 npm（${channel}）...`);
   const publishArgs = ['publish'];
   if (channel === 'beta') publishArgs.push('--tag', 'beta');
   publishArgs.push('--access', 'public');
