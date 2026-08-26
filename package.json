@@ -34,7 +34,7 @@
   "author": "wangmingfa",
   "license": "MIT",
   "scripts": {
-    "dev": "bun run --parallel dev:api dev:ui",
+    "dev": "bun scripts/check-dev-ports.ts && bun run --parallel dev:api dev:ui",
     "dev:api": "MODEL_GATE_DEV=1 NODE_ENV=development bun scripts/ensure-admin-assets.ts && bun --watch src/index.ts",
     "dev:ui": "cd admin && bun run dev",
     "embed": "bun install --cwd admin && bun run --cwd admin build && bun scripts/embed-assets.ts",

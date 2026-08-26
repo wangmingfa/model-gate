@@ -26,6 +26,7 @@ export default defineConfig(async () => {
     server: {
       host: true, // 允许局域网/域名访问 5173（远程热更新）；无鉴权，仅开发期使用
       port: 5173,
+      strictPort: true, // 端口被占用时直接报错退出，而不是自动切到 5174 等其它端口
       proxy: {
         // 开发时把管理 API 代理到网关端口；延迟探测类长请求需放宽代理超时
         '/admin/api': {

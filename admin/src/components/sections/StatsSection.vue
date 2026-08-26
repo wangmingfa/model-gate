@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, h, onMounted, computed } from 'vue';
 import { NCard, NButton, NTag, NSelect, NDataTable, NIcon, NEmpty, NSpace, NGrid, NGridItem, NModal } from 'naive-ui';
-import { BarChartOutline, ReloadOutline } from '@vicons/ionicons5';
+import { BarChartOutline, ReloadOutline, ChevronForwardOutline } from '@vicons/ionicons5';
 import { getStats, getStatsDetails, type StatsResponse, type StatsRow, type StatsCall } from '../../api';
 
 const loading = ref(false);
@@ -67,6 +67,7 @@ const aliasColumns = [
   { title: 'Tokens', key: 'tokens', width: 120, render: (r: StatsRow) => fmtTokens(r.tokens) },
   { title: '估算成本', key: 'cost', width: 120, render: (r: StatsRow) => fmtCost(r.cost) },
   { title: 'P95(ms)', key: 'p95Ms', width: 100, render: (r: StatsRow) => Math.round(r.p95Ms) },
+  { title: '', key: 'drill', width: 36, align: 'right', fixed: 'right', render: () => h(NIcon, { class: 'drill-icon', size: 16 }, { default: () => h(ChevronForwardOutline) }) },
 ];
 const keyColumns = [
   { title: '下游密钥', key: 'key', width: 360, render: (r: StatsRow) => maskKey(r.key) },
@@ -76,6 +77,7 @@ const keyColumns = [
   { title: 'Tokens', key: 'tokens', width: 120, render: (r: StatsRow) => fmtTokens(r.tokens) },
   { title: '估算成本', key: 'cost', width: 120, render: (r: StatsRow) => fmtCost(r.cost) },
   { title: 'P95(ms)', key: 'p95Ms', width: 100, render: (r: StatsRow) => Math.round(r.p95Ms) },
+  { title: '', key: 'drill', width: 36, align: 'right', fixed: 'right', render: () => h(NIcon, { class: 'drill-icon', size: 16 }, { default: () => h(ChevronForwardOutline) }) },
 ];
 
 const hasData = computed(() => (data.value?.overview.requests ?? 0) > 0);
@@ -324,6 +326,19 @@ const callColumns = [
 }
 .table-block {
   margin-top: 18px;
+}
+/* 行尾向右箭头：默认淡灰，hover 整行时变主色并轻微右移，强化「可点进去看详情」语义 */
+.table-block :deep(.drill-icon) {
+  color: #c0c4cc;
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+.table-block :deep(.n-data-table-tr:hover .drill-icon) {
+  color: #6366f1;
+  transform: translateX(2px);
+}
+/* 整行 hover 背景高亮，明确可交互 */
+.table-block :deep(.n-data-table-tr:hover > .n-data-table-td) {
+  background-color: rgba(99, 102, 241, 0.06);
 }
 .row-hint {
   font-size: 11px;
