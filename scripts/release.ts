@@ -163,13 +163,23 @@ function cmpSemver(a: string, b: string): number {
   for (let i = 0; i < 3; i++) {
     if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) - (pb[i] ?? 0);
   }
-  // base 相同：比较 prerelease（无后缀 > 有后缀；同为后缀按字典序）
-  const preA = a.includes('-') ? a.split('-')[1] : null;
-  const preB = b.includes('-') ? b.split('-')[1] : null;
-  if (preA === null && preB === null) return 0;
-  if (preA === null) return 1;
-  if (preB === null) return -1;
-  return preA < preB ? -1 : preA > preB ? 1 : 0;
+  // base 相同：比较 prerelease（无后缀 > 有后缀；同为后缀时按「标签名 + 迭代号数值」比较，
+  // 不可用字符串比较，否则会掉进 beta.10 < beta.9 的字典序陷阱，把旧版本排成最大）
+  const parsePre = (v: string) => {
+    const pre = v.includes('-') ? v.split('-')[1] : null;
+    if (!pre) return null;
+    const dot = pre.indexOf('.');
+    const tag = dot === -1 ? pre : pre.slice(0, dot);
+    const num = dot === -1 ? NaN : Number(pre.slice(dot + 1));
+    return { tag, num };
+  };
+  const pa2 = parsePre(a);
+  const pb2 = parsePre(b);
+  if (pa2 === null && pb2 === null) return 0;
+  if (pa2 === null) return 1;
+  if (pb2 === null) return -1;
+  if (pa2.tag !== pb2.tag) return pa2.tag < pb2.tag ? -1 : 1;
+  return (pa2.num ?? 0) - (pb2.num ?? 0);
 }
 
 /** 校验字符串是否合法 semver（允许 -prerelease 后缀） */
