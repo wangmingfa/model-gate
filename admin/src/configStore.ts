@@ -5,7 +5,7 @@ import {
   getConfig,
   saveConfig,
   testConnection,
-  testProviderModels,
+  testProviderModel,
   fetchModels,
   generateKey,
   checkConfig,
@@ -100,6 +100,8 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
   const testStates = ref<Record<string, { testing: boolean; result: string; ok: boolean }>>({});
   // 逐模型测试（「测试所有模型」按钮）：providerName -> { testing, results, error }
   const modelTests = ref<Record<string, { testing: boolean; results: ProviderLatency[]; error?: string }>>({});
+  // 别名目标模型逐模型测试（「测试所有目标」按钮）：aliasName -> { testing, results, error }
+  const aliasTests = ref<Record<string, { testing: boolean; results: ProviderLatency[]; error?: string }>>({});
   // 拉取模型状态：providerName -> { fetching, result }（与 testStates 共用错误展示区）
   const fetchStates = ref<Record<string, { fetching: boolean; result: string; ok: boolean }>>({});
 
@@ -277,20 +279,74 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
   }
 
   /** 一键测试「当前 provider」的全部模型可用性与延迟：
-   *  复用后端的 /providers/latency（传 { provider } 做过滤），逐模型并发探测，
-   *  结果按 provider 名存入 modelTests，供卡片内联展示。无需先保存配置（测的是已部署配置）。 */
+   *  对该 provider 下每个模型各发一个独立请求（后端 /providers/latency 单模型探测），
+   *  哪个模型先返回就立即把结果增量写入 modelTests.results，前端逐行实时刷新，
+   *  不必等整批结束。无需先保存配置（测的是已部署配置）。
+   *  所有请求都 settle 后把 testing 置 false，期间整列表处于锁定态。 */
   async function onTestAllModels(provider: ProviderRow): Promise<void> {
     if (!provider.models.length) {
       message.warning('该 provider 还没有模型，先添加模型');
       return;
     }
-    modelTests.value[provider.name] = { testing: true, results: [], error: undefined };
-    try {
-      const r = await testProviderModels(provider.name);
-      modelTests.value[provider.name] = { testing: false, results: r.results, error: undefined };
-    } catch (e) {
-      modelTests.value[provider.name] = { testing: false, results: [], error: (e as Error).message };
+    const name = provider.name;
+    modelTests.value[name] = { testing: true, results: [], error: undefined };
+    const models = [...provider.models];
+    await Promise.allSettled(
+      models.map((m) =>
+        testProviderModel(name, m)
+          .then((r) => {
+            const entry = modelTests.value[name];
+            if (entry) entry.results.push(r);
+          })
+          .catch((e) => {
+            const entry = modelTests.value[name];
+            if (entry) entry.results.push({ provider: name, model: m, ok: false, error: (e as Error).message });
+          }),
+      ),
+    );
+    const entry = modelTests.value[name];
+    if (entry) entry.testing = false;
+  }
+
+  /** 一键测试「当前别名」的全部目标模型可用性与延迟：
+   *  每个目标形如 "provider:model"，按首个 ":" 拆出 provider/model，各自发独立请求
+   *  （后端 /providers/latency 单模型探测，用的是已部署配置），哪个先返回就立即把结果增量写入
+   *  aliasTests[name].results，前端逐行实时刷新，不必等整批结束。无需先保存配置。 */
+  async function onTestAliasTargets(alias: AliasRow): Promise<void> {
+    const name = alias.name.trim();
+    if (!name) {
+      message.warning('请先填写别名名称，再测试目标');
+      return;
     }
+    const targets = alias.targets.filter(Boolean);
+    if (!targets.length) {
+      message.warning('该别名还没有目标模型，先添加目标');
+      return;
+    }
+    aliasTests.value[name] = { testing: true, results: [], error: undefined };
+    await Promise.allSettled(
+      targets.map((t) => {
+        const sep = t.indexOf(':');
+        const provider = sep > 0 ? t.slice(0, sep) : '';
+        const model = sep >= 0 ? t.slice(sep + 1) : t;
+        if (!provider || !model) {
+          const entry = aliasTests.value[name];
+          if (entry) entry.results.push({ provider: provider || '(未知)', model: t, ok: false, error: '目标格式应为 "provider:model"' });
+          return Promise.resolve();
+        }
+        return testProviderModel(provider, model)
+          .then((r) => {
+            const entry = aliasTests.value[name];
+            if (entry) entry.results.push(r);
+          })
+          .catch((e) => {
+            const entry = aliasTests.value[name];
+            if (entry) entry.results.push({ provider, model, ok: false, error: (e as Error).message });
+          });
+      }),
+    );
+    const entry = aliasTests.value[name];
+    if (entry) entry.testing = false;
   }
 
   /** 一键拉取上游模型列表并回填到该 provider 的 models 字段（草稿优先、服务端回退；
@@ -454,6 +510,7 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
     apiBaseUrl,
     testStates,
     modelTests,
+    aliasTests,
     fetchStates,
     // 动作
     load,
@@ -468,6 +525,7 @@ function createConfigStore(message: ReturnType<typeof useMessage>, dialog: Retur
     removeAliasConfirm,
     onTest,
     onTestAllModels,
+    onTestAliasTargets,
     onFetchModels,
     autoSave,
     scheduleAutoSave,

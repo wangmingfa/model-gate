@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NTag, NIcon, NInputNumber, NTooltip } from 'naive-ui';
-import { ServerOutline, SaveOutline } from '@vicons/ionicons5';
+import { ServerOutline, SaveOutline, SwapVerticalOutline } from '@vicons/ionicons5';
 import { useConfigStore, type ProviderRow } from '../../configStore';
 import ItemCard from '../ItemCard.vue';
 import SortableList from '../SortableList.vue';
@@ -65,16 +65,44 @@ function initPricing(p: ProviderRow): void {
 function clearPricing(p: ProviderRow): void {
   p.pricing = undefined;
 }
-/** 取某模型在当前 provider 逐模型测试中的结果（无结果/正在测试时返回 undefined） */
+/** 取某模型在当前 provider 逐模型测试中的结果；结果一到达即返回（即便整批仍在测试中），
+ *  以便已完成行实时露出可用/不可用标签。无结果返回 undefined。 */
 function modelResult(p: ProviderRow, model: string): ProviderLatency | undefined {
   const entry = store.modelTests[p.name];
-  if (!entry || entry.testing) return undefined;
+  if (!entry) return undefined;
   return entry.results.find((r) => r.model === model);
 }
 
-/** 该 provider 的模型列表是否处于「禁止编辑」态：正在批量测试，或正在测首个模型的连接 */
+/** 该 provider 是否正在「测试所有模型」（整批探测进行中）。仅此态锁定列表编辑与操作。 */
 function listTesting(p: ProviderRow): boolean {
-  return !!store.modelTests[p.name]?.testing || !!store.testStates[p.name]?.testing;
+  return !!store.modelTests[p.name]?.testing;
+}
+
+/** 正在探测、尚未返回结果的模型集合（用于 SortableList 的 pendingItems，给这些行铺缓冲条）。
+ *  已返回结果的模型不在其中，立即展示标签。 */
+function pendingModels(p: ProviderRow): string[] {
+  if (!listTesting(p)) return [];
+  const done = new Set(store.modelTests[p.name]!.results.map((r) => r.model));
+  return p.models.filter((m) => !done.has(m));
+}
+
+/** 按「测试所有模型」的延迟结果对模型列表排序：延迟升序（快→慢），未测/不可用的模型沉到末尾（保持原有相对顺序）。
+ *  同时按相同置换重排 modelRowIds，保证行 key 与模型对齐，排序动画（FLIP）正确跟手。 */
+function onSortByLatency(p: ProviderRow): void {
+  const results = store.modelTests[p.name]?.results;
+  if (!results || !results.length) return;
+  const msOf = new Map<string, number>();
+  for (const r of results) {
+    // 不可用（ok:false）/ 缺 ms 的记为 +∞，沉到末尾
+    msOf.set(r.model, r.ok && typeof r.ms === 'number' ? r.ms : Number.POSITIVE_INFINITY);
+  }
+  const INF = Number.POSITIVE_INFINITY;
+  const order = p.models
+    .map((_, i) => i)
+    .sort((a, b) => (msOf.get(p.models[a]) ?? INF) - (msOf.get(p.models[b]) ?? INF));
+  const ids = p.modelRowIds ?? [];
+  p.models = order.map((i) => p.models[i]);
+  p.modelRowIds = order.map((i) => ids[i]);
 }
 
 // 基于实测结果给出友好解读（不靠模型名猜测类型，完全依据上游真实返回）
@@ -184,6 +212,15 @@ function friendlyReason(r: ProviderLatency): string {
                   >
                     测试所有模型
                   </n-button>
+                  <n-button
+                    size="tiny"
+                    :disabled="!store.modelTests[p.name]?.results.length || listTesting(p)"
+                    @click="onSortByLatency(p)"
+                    style="pointer-events: auto"
+                  >
+                    <template #icon><n-icon><SwapVerticalOutline /></n-icon></template>
+                    按延迟排序
+                  </n-button>
                   <span
                     v-if="store.modelTests[p.name] && !store.modelTests[p.name]!.testing && store.modelTests[p.name]!.results.length"
                     class="model-test-summary"
@@ -199,6 +236,7 @@ function friendlyReason(r: ProviderLatency): string {
                 v-model:items="p.models"
                 v-model:rowIds="p.modelRowIds"
                 :disabled="listTesting(p)"
+                :pending-items="pendingModels(p)"
                 add-label="+ 添加模型"
               >
                 <template #item="{ items, index, disabled }">

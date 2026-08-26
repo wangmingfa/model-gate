@@ -149,10 +149,11 @@ export interface ProviderLatency {
   error?: string;
 }
 
-/** 测试「指定 provider」的全部模型可用性与延迟：向 /providers/latency 传 { provider } 做过滤，
- *  返回该 provider 下每个模型的探测结果。 */
-export function testProviderModels(provider: string): Promise<{ results: ProviderLatency[] }> {
-  return request('/providers/latency', { method: 'POST', body: JSON.stringify({ provider }) });
+/** 测试「单个 provider 的单个模型」可用性与延迟：向 /providers/latency 传 { provider, model }，
+ *  返回该模型单个探测结果。前端「测试所有模型」时对每个模型各发一次独立请求，逐个回填结果，
+ *  从而实时展示每个模型的成败与延迟，无需等整批结束。 */
+export function testProviderModel(provider: string, model: string): Promise<ProviderLatency> {
+  return request('/providers/latency', { method: 'POST', body: JSON.stringify({ provider, model }) });
 }
 
 // ---- 登录 / 登出 / 登录状态 ----

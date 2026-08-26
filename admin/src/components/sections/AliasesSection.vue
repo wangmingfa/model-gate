@@ -2,11 +2,11 @@
 import { ref, watch, computed, onMounted } from 'vue';
 import type { SelectOption, SelectGroupOption } from 'naive-ui';
 import {
-  NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NSelect, NIcon, NTag,
+  NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NSelect, NIcon, NTag, NTooltip,
 } from 'naive-ui';
-import { GitBranchOutline, SaveOutline } from '@vicons/ionicons5';
+import { GitBranchOutline, SaveOutline, SwapVerticalOutline } from '@vicons/ionicons5';
 import { useConfigStore, type AliasRow } from '../../configStore';
-import { getAliasStatus, type AliasStatus } from '../../api';
+import { getAliasStatus, type AliasStatus, type ProviderLatency } from '../../api';
 import ItemCard from '../ItemCard.vue';
 import SortableList from '../SortableList.vue';
 
@@ -85,6 +85,55 @@ function isPrimaryHit(a: AliasRow): boolean {
   return !!st && !!a.targets[0] && st.activeModel === a.targets[0];
 }
 
+// ---- 目标模型延迟测试 + 按延迟排序（与 ProvidersSection 的模型列表同款体验）----
+// store.aliasTests 按别名名聚合；结果行的 provider:model 与 target 字符串（"provider:model"）一一对应。
+function targetResult(a: AliasRow, target: string): ProviderLatency | undefined {
+  const entry = store.aliasTests[a.name];
+  if (!entry) return undefined;
+  return entry.results.find((r) => `${r.provider}:${r.model}` === target);
+}
+/** 该别名是否正在「测试所有目标」（整批探测进行中）。仅此态锁定列表编辑与操作。 */
+function aliasTesting(a: AliasRow): boolean {
+  return !!store.aliasTests[a.name]?.testing;
+}
+/** 正在探测、尚未返回结果的目标集合（用于 SortableList 的 pendingItems，给这些行铺缓冲条）。 */
+function pendingTargets(a: AliasRow): string[] {
+  if (!aliasTesting(a)) return [];
+  const done = new Set(store.aliasTests[a.name]!.results.map((r) => `${r.provider}:${r.model}`));
+  return a.targets.filter((t) => t && !done.has(t));
+}
+/** 按测试结果延迟对该别名的目标列表升序排序（快→慢），未测/不可用的沉到末尾并保留原相对顺序；
+ *  同时按相同置换重排 targetRowIds，保证行 key 与 target 对齐，排序动画（FLIP）正确跟手。 */
+function onSortAliasByLatency(a: AliasRow): void {
+  const results = store.aliasTests[a.name]?.results;
+  if (!results || !results.length) return;
+  const msOf = new Map<string, number>();
+  for (const r of results) msOf.set(`${r.provider}:${r.model}`, r.ok && typeof r.ms === 'number' ? r.ms : Number.POSITIVE_INFINITY);
+  const INF = Number.POSITIVE_INFINITY;
+  const order = a.targets.map((_, i) => i).sort((i, j) => (msOf.get(a.targets[i]) ?? INF) - (msOf.get(a.targets[j]) ?? INF));
+  const ids = a.targetRowIds ?? [];
+  a.targets = order.map((i) => a.targets[i]);
+  a.targetRowIds = order.map((i) => ids[i]);
+}
+/** 由实测结果给出友好解读（完全依据上游真实返回，不靠模型名猜测类型） */
+function friendlyReason(r: ProviderLatency): string {
+  if (r.ok) return '可用';
+  if (r.status == null) return r.error || '未知错误';
+  switch (r.status) {
+    case 404:
+      return 'chat 接口返回 404：该模型在此端点不可用。可能是图像生成 / embeddings 等非对话模型，也可能是模型名拼写有误。';
+    case 401:
+    case 403:
+      return '鉴权失败（401/403）：API Key 无效，或该 Key 无此模型权限。';
+    case 429:
+      return '触发限流（429）：请求过于频繁或配额已耗尽，稍后重试。';
+    case 400:
+      return '请求参数有误（400）：模型名或 base_url 格式可能不正确。';
+    default:
+      return `上游返回 ${r.status}：${r.error || '未知错误'}`;
+  }
+}
+
 // 同 ProvidersSection：load() 异步填充后首次同步草稿
 watch(
   () => store.aliases,
@@ -144,24 +193,86 @@ async function onSave(): Promise<void> {
             </n-form-item>
             <n-form-item style="margin-bottom: 0">
               <template #label>
-                <span style="display: inline-flex; align-items: center; gap: 8px">
+                <span style="display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap">
                   目标模型
                   <n-tag size="tiny" :bordered="false" type="default">顺序即 failover 优先级</n-tag>
+                  <n-button
+                    size="tiny"
+                    type="info"
+                    secondary
+                    :loading="store.aliasTests[a.name]?.testing"
+                    :disabled="!a.targets.length"
+                    @click="store.onTestAliasTargets(a)"
+                    style="pointer-events: auto"
+                  >
+                    测试所有目标
+                  </n-button>
+                  <n-button
+                    size="tiny"
+                    :disabled="!store.aliasTests[a.name]?.results.length || aliasTesting(a)"
+                    @click="onSortAliasByLatency(a)"
+                    style="pointer-events: auto"
+                  >
+                    <template #icon><n-icon><SwapVerticalOutline /></n-icon></template>
+                    按延迟排序
+                  </n-button>
+                  <span
+                    v-if="store.aliasTests[a.name] && !store.aliasTests[a.name]!.testing && store.aliasTests[a.name]!.results.length"
+                    class="model-test-summary"
+                  >
+                    {{ store.aliasTests[a.name]!.results.filter((r) => r.ok).length }}/{{
+                      store.aliasTests[a.name]!.results.length
+                    }}
+                    可用
+                  </span>
                 </span>
               </template>
               <SortableList
                 v-model:items="a.targets"
                 v-model:rowIds="a.targetRowIds"
+                :disabled="aliasTesting(a)"
+                :pending-items="pendingTargets(a)"
                 add-label="添加目标"
               >
-                <template #item="{ items, index }">
+                <template #item="{ items, index, disabled }">
                   <n-select
                     v-model:value="items[index]"
                     :options="optionsFor(a, index)"
+                    :disabled="disabled"
                     placeholder="选择提供商下的模型"
                     class="alias-target-select"
                     style="flex: 1; min-width: 0"
                   />
+                  <!-- 该目标逐模型测试结果：选择器右侧标签，hover 显示详情 -->
+                  <n-tooltip v-if="targetResult(a, items[index])" trigger="hover" placement="left">
+                    <template #trigger>
+                      <n-tag
+                        :type="targetResult(a, items[index])!.ok ? 'success' : 'error'"
+                        size="small"
+                        :bordered="false"
+                        class="model-result-tag"
+                      >
+                        {{ targetResult(a, items[index])!.ok ? `可用 ${targetResult(a, items[index])!.ms}ms` : '不可用' }}
+                      </n-tag>
+                    </template>
+                    <div class="model-result-tip">
+                      <div><b>目标</b>：{{ targetResult(a, items[index])!.provider }}:{{ targetResult(a, items[index])!.model }}</div>
+                      <div>
+                        <b>延迟</b>：{{
+                          targetResult(a, items[index])!.ok ? `${targetResult(a, items[index])!.ms}ms` : '—'
+                        }}
+                      </div>
+                      <div v-if="targetResult(a, items[index])!.status != null">
+                        <b>状态码</b>：{{ targetResult(a, items[index])!.status }}
+                      </div>
+                      <div v-if="!targetResult(a, items[index])!.ok">
+                        <b>提示</b>：{{ friendlyReason(targetResult(a, items[index])!) }}
+                      </div>
+                      <div v-if="!targetResult(a, items[index])!.ok && targetResult(a, items[index])!.error" class="model-result-raw">
+                        <b>原始返回</b>：{{ targetResult(a, items[index])!.error }}
+                      </div>
+                    </div>
+                  </n-tooltip>
                 </template>
               </SortableList>
             </n-form-item>
@@ -227,5 +338,35 @@ async function onSave(): Promise<void> {
   height: 8px;
   border-radius: 50%;
   flex: 0 0 auto;
+}
+
+/* 目标模型测试结果标签：固定在选择器右侧，不随内容伸缩 */
+.model-result-tag {
+  flex-shrink: 0;
+  cursor: default;
+}
+/* tooltip 内的详情排版 */
+.model-result-tip {
+  font-size: 12px;
+  line-height: 1.7;
+  max-width: 320px;
+  word-break: break-word;
+  white-space: normal;
+}
+.model-result-tip b {
+  color: #cbd5e1;
+  font-weight: 600;
+}
+/* 原始上游返回：弱化显示，细节备查 */
+.model-result-raw {
+  color: #94a3b8;
+  font-size: 11px;
+  line-height: 1.5;
+  opacity: 0.85;
+}
+/* 按钮旁「x/y 可用」汇总 */
+.model-test-summary {
+  font-size: 12px;
+  color: #6b7280;
 }
 </style>

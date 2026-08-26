@@ -25,9 +25,13 @@ interface Props {
   addSize?: 'tiny' | 'small' | 'medium' | 'large';
   /** 每行操作按钮尺寸（默认 small） */
   btnSize?: 'tiny' | 'small' | 'medium' | 'large';
-  /** 整列表处于不可编辑态（如正在批量测试）：禁用编辑、右侧操作按钮与添加按钮，
-   *  并在每一行覆盖一层「测试缓冲」进度条效果 */
+  /** 整列表处于不可编辑态（如正在批量测试）：禁用编辑、右侧操作按钮与添加按钮。
+   *  注意：逐行「测试缓冲」覆盖层由 pendingItems 单独控制，而非 disabled —— 这样已完成的
+   *  行能立即露出结果标签，未完成的行才显示缓冲条，实现实时逐行反馈。 */
   disabled?: boolean;
+  /** 正处于「进行中」的行数据（如正在探测的模型 id）。列表中的这些行会覆盖一层
+   *  半透明白膜 + 底部流动进度条，表示还在测试中；其余行（已出结果）正常展示。 */
+  pendingItems?: string[];
 }
 const props = withDefaults(defineProps<Props>(), {
   items: () => [],
@@ -39,6 +43,7 @@ const props = withDefaults(defineProps<Props>(), {
   addSize: 'small',
   btnSize: 'small',
   disabled: false,
+  pendingItems: () => [],
 });
 
 const emit = defineEmits<{
@@ -102,9 +107,13 @@ function onTop(idx: number): void {
 <template>
   <div class="model-list-wrap">
     <TransitionGroup name="model-move" tag="div" class="model-list">
-      <div v-for="(it, idx) in items" :key="rowIds?.[idx] ?? idx" :class="['model-row', { 'is-testing': disabled }]">
+      <div
+        v-for="(it, idx) in items"
+        :key="rowIds?.[idx] ?? idx"
+        :class="['model-row', { 'is-testing': disabled, 'is-pending': pendingItems.includes(it) }]"
+      >
         <!-- 每行内容由父级通过 #item 插槽提供（如 n-input 或 n-select），并直接双向绑定 items[index] -->
-        <slot name="item" :items="items" :index="idx" :item="it" :disabled="disabled" />
+        <slot name="item" :items="items" :index="idx" :item="it" :disabled="disabled" :pending="pendingItems.includes(it)" />
         <n-tooltip v-if="showTop" trigger="hover">
           <template #trigger>
             <n-button :size="btnSize" quaternary :disabled="disabled || idx === 0" @click="onTop(idx)">
@@ -137,9 +146,10 @@ function onTop(idx: number): void {
           </template>
           删除
         </n-tooltip>
-        <!-- 测试缓冲覆盖层：仅 disabled（测试中）时出现，覆盖整行 + 底部流动进度条 -->
-        <div v-if="disabled" class="model-row-overlay" aria-hidden="true"></div>
-        <div v-if="disabled" class="model-row-buffer" aria-hidden="true"><i></i></div>
+        <!-- 测试缓冲覆盖层：仅「进行中」的行出现，覆盖整行 + 底部流动进度条；
+              已返回结果的行不显示，立即露出可用/不可用标签 -->
+        <div v-if="pendingItems.includes(it)" class="model-row-overlay" aria-hidden="true"></div>
+        <div v-if="pendingItems.includes(it)" class="model-row-buffer" aria-hidden="true"><i></i></div>
       </div>
     </TransitionGroup>
     <!-- 添加按钮不占满宽度（去掉 block），尺寸默认 small 更清晰 -->

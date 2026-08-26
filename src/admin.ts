@@ -517,48 +517,35 @@ export function createAdminApp(
     }
   });
 
-  // 一键测试所有模型的可用性与延迟：遍历每个 provider 的每一个模型，
-  // 并发发 1-token 探测，返回每个 (provider, model) 的延迟与成败。
-  // 可选 body { provider }：仅测该 provider 的模型（供「当前 provider 测试全部模型」按钮复用）。
+  // 单模型延迟探测：前端「测试所有模型」时对每个模型各发一个独立请求，
+  // 这样哪个模型先完成就能实时在前端展示（不必等整批结束）。
+  // body 需 { provider, model }，返回单个探测结果 { provider, model, ok, ms?, status?, error? }。
   admin.post('/api/providers/latency', async (c) => {
     const cfg = getConfig();
-    const body = (await c.req.json().catch(() => ({}))) as { provider?: unknown };
-    const onlyProvider =
-      typeof body?.provider === 'string' && body.provider.trim() ? body.provider.trim() : null;
+    const body = (await c.req.json().catch(() => ({}))) as { provider?: unknown; model?: unknown };
+    const provider = typeof body?.provider === 'string' && body.provider.trim() ? body.provider.trim() : null;
+    const model = typeof body?.model === 'string' && body.model.trim() ? body.model.trim() : null;
+    if (!provider || !model) {
+      return c.json(
+        { error: { message: 'provider 与 model 均为必填', type: 'invalid_request_error', code: 'missing_params' } },
+        400,
+      );
+    }
+    const p = cfg.providers[provider];
+    if (!p) {
+      return c.json(
+        { error: { message: `provider "${provider}" 不存在`, type: 'not_found_error', code: 'provider_not_found' } },
+        404,
+      );
+    }
     // 延迟探测单次超时封顶 60s（1 分钟）：足够识别慢/不可达的上游，
-    // 又远低于服务器 idleTimeout（180s），并发整批不会触发服务端超时
+    // 又远低于服务器 idleTimeout（180s），并发多模型不会触发服务端超时
     const timeoutMs = Math.min(
       (typeof cfg.timeout_seconds === 'number' && cfg.timeout_seconds > 0 ? cfg.timeout_seconds : 60) * 1000,
       60000,
     );
-    // 展开成「每个 provider × 每个模型」的探测任务；无模型的 provider 记为单行失败
-    const tasks: Promise<{ provider: string; model: string; ok: boolean; ms?: number; status?: number | null; error?: string }>[] =
-      [];
-    for (const [name, p] of Object.entries(cfg.providers)) {
-      // 按 provider 过滤（指定了 onlyProvider 时只测该 provider）
-      if (onlyProvider && name !== onlyProvider) continue;
-      if (!p.models.length) {
-        tasks.push(Promise.resolve({ provider: name, model: '', ok: false, error: '未配置模型' }));
-        continue;
-      }
-      for (const model of p.models) {
-        tasks.push(
-          (async () => {
-            const r = await pingOnce(p.base_url, p.api_key, model, timeoutMs);
-            return { provider: name, model, ...r };
-          })(),
-        );
-      }
-    }
-    // 用 allSettled 而非 all：即使个别探测意外抛错（理论上 pingOnce 已全 catch），
-    // 也不会让整个接口 500，而是把该任务记为失败行，保证汇总结果始终完整
-    const settled = await Promise.allSettled(tasks);
-    const results = settled.map((s) =>
-      s.status === 'fulfilled'
-        ? s.value
-        : { provider: '(未知)', model: '', ok: false, error: `探测异常：${String(s.reason)}` },
-    );
-    return c.json({ results });
+    const r = await pingOnce(p.base_url, p.api_key, model, timeoutMs);
+    return c.json({ provider, model, ...r });
   });
 
   // 用量统计：读取 access.log 聚合（仅统计 /v1/chat/completions 真实流量）

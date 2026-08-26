@@ -348,8 +348,8 @@ describe('dev 模式（includeAdminStatic: false）', () => {
   });
 });
 
-describe('一键测试所有模型延迟（逐模型探测）', () => {
-  test('每个 provider 的每个模型各返回一行，含延迟与成败', async () => {
+describe('单模型延迟探测（/api/providers/latency）', () => {
+  test('成功探测返回单个模型结果，含延迟与成败', async () => {
     const cfg: Config = {
       ...base,
       providers: {
@@ -362,72 +362,83 @@ describe('一键测试所有模型延迟（逐模型探测）', () => {
     // mock 外网探测：全部成功，避免依赖真实网络
     globalThis.fetch = (async () => new Response('{}', { status: 200 })) as any;
     try {
-      const res = await adminReq('/api/providers/latency', { method: 'POST' });
+      const res = await adminReq('/api/providers/latency', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ provider: 'a', model: 'm1' }),
+      });
       expect(res.status).toBe(200);
       const j = (await res.json()) as {
-        results: Array<{ provider: string; model: string; ok: boolean; ms?: number }>;
+        provider: string;
+        model: string;
+        ok: boolean;
+        ms?: number;
       };
-      // 2 + 1 = 3 个模型 → 逐模型各返回一行
-      expect(j.results.length).toBe(3);
-      expect(j.results.every((r) => r.ok === true && typeof r.ms === 'number')).toBe(true);
-      expect(
-        j.results
-          .map((r) => `${r.provider}:${r.model}`)
-          .sort(),
-      ).toEqual(['a:m1', 'a:m2', 'b:m3']);
+      // 单模型接口：只返回被探测的那一行，而非整批
+      expect(j.provider).toBe('a');
+      expect(j.model).toBe('m1');
+      expect(j.ok).toBe(true);
+      expect(typeof j.ms).toBe('number');
     } finally {
       globalThis.fetch = origFetch;
     }
   });
 
-  test('探测失败（上游 500）时该行标记 ok:false 并带状态码', async () => {
+  test('上游 500 时返回 ok:false 并带状态码', async () => {
     const cfg: Config = {
       ...base,
       providers: { a: { base_url: 'https://a.test/v1', api_key: 'k-a', api_key_raw: 'k-a', models: ['m1'] } },
     };
     writeConfig(cfg);
     const origFetch = globalThis.fetch;
-    // mock 上游返回 500，验证失败行结构与错误信息
+    // mock 上游返回 500，验证失败结构与错误信息
     globalThis.fetch = (async () => new Response('upstream error', { status: 500 })) as any;
     try {
-      const res = await adminReq('/api/providers/latency', { method: 'POST' });
+      const res = await adminReq('/api/providers/latency', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ provider: 'a', model: 'm1' }),
+      });
       expect(res.status).toBe(200);
       const j = (await res.json()) as {
-        results: Array<{ provider: string; model: string; ok: boolean; status?: number | null; error?: string }>;
+        provider: string;
+        model: string;
+        ok: boolean;
+        status?: number | null;
+        error?: string;
       };
-      expect(j.results.length).toBe(1);
-      expect(j.results[0].provider).toBe('a');
-      expect(j.results[0].model).toBe('m1');
-      expect(j.results[0].ok).toBe(false);
-      expect(j.results[0].status).toBe(500);
+      expect(j.provider).toBe('a');
+      expect(j.model).toBe('m1');
+      expect(j.ok).toBe(false);
+      expect(j.status).toBe(500);
     } finally {
       globalThis.fetch = origFetch;
     }
   });
 
-  test('传 { provider } 时只返回该 provider 的模型行', async () => {
+  test('缺 provider/model 返回 400，provider 不存在返回 404', async () => {
     const cfg: Config = {
       ...base,
-      providers: {
-        a: { base_url: 'https://a.test/v1', api_key: 'k-a', api_key_raw: 'k-a', models: ['m1', 'm2'] },
-        b: { base_url: 'https://b.test/v1', api_key: 'k-b', api_key_raw: 'k-b', models: ['m3'] },
-      },
+      providers: { a: { base_url: 'https://a.test/v1', api_key: 'k-a', api_key_raw: 'k-a', models: ['m1'] } },
     };
     writeConfig(cfg);
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async () => new Response('{}', { status: 200 })) as any;
     try {
-      const res = await adminReq('/api/providers/latency', {
+      // 缺 model
+      const r1 = await adminReq('/api/providers/latency', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ provider: 'a' }),
       });
-      expect(res.status).toBe(200);
-      const j = (await res.json()) as {
-        results: Array<{ provider: string; model: string }>;
-      };
-      // 只测 provider a 的两个模型，b 不应出现
-      expect(j.results.map((r) => `${r.provider}:${r.model}`).sort()).toEqual(['a:m1', 'a:m2']);
+      expect(r1.status).toBe(400);
+      // provider 不存在
+      const r2 = await adminReq('/api/providers/latency', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ provider: 'nope', model: 'm1' }),
+      });
+      expect(r2.status).toBe(404);
     } finally {
       globalThis.fetch = origFetch;
     }
