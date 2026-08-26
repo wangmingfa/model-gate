@@ -190,22 +190,32 @@ if (subcommand?.startsWith('upgrade')) {
       console.log(`[model-gate] 正在用 bun 升级到 ${tag} 版本: ${spec}`);
       const proc = Bun.spawn(['bun', 'install', '-g', spec], {
         stdout: 'pipe',
-        stderr: 'inherit',
+        stderr: 'pipe',
       });
-      // 流式转发 stdout（保留实时进度），同时收集文本用于解析真实版本号
+      // 流式转发 stdout/stderr（保留实时进度），同时把两份输出都收集进 outBuf
+      // 用于解析真实版本号——bun 的 "installed @...@x.y.z" 摘要行可能落在 stderr 流
       let outBuf = '';
-      const reader = proc.stdout.getReader();
-      const decoder = new TextDecoder();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        outBuf += chunk;
-        process.stdout.write(chunk);
-      }
+      const drain = async (
+        stream: ReadableStream<Uint8Array>,
+        sink: (s: string) => void,
+      ) => {
+        const reader = stream.getReader();
+        const decoder = new TextDecoder();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          outBuf += chunk;
+          sink(chunk);
+        }
+      };
+      await Promise.all([
+        drain(proc.stdout, (s) => process.stdout.write(s)),
+        drain(proc.stderr, (s) => process.stderr.write(s)),
+      ]);
       const code = await proc.exited;
       if (code === 0) {
-        // 从 bun 安装输出解析真实解析到的版本（如 0.0.1-beta.7），而非 tag（@beta）
+        // 从 bun 安装输出解析真实解析到的版本（如 0.0.1-beta.10），而非 tag（@beta）
         const m = outBuf.match(/installed\s+@?[\w/-]+@([\w.-]+)/);
         const resolved = m?.[1] ?? null;
         const finalSpec = resolved ? `@${pkgName}@${resolved}` : spec;
