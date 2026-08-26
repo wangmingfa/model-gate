@@ -38,7 +38,7 @@
     "dev:api": "MODEL_GATE_DEV=1 NODE_ENV=development bun scripts/ensure-admin-assets.ts && bun --watch src/index.ts",
     "dev:ui": "cd admin && bun run dev",
     "embed": "bun install --cwd admin && bun run --cwd admin build && bun scripts/embed-assets.ts",
-    "build": "bun run embed && bun build src/index.ts --target=bun --outfile model-gate.js",
+    "build": "bun run embed && bun build src/index.ts --target=bun --minify --outfile model-gate.js",
     "release": "bun scripts/release.ts",
     "unpublish": "bun scripts/unpublish.ts",
     "test": "bun test --path-ignore-patterns=admin",
