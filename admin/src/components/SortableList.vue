@@ -25,6 +25,9 @@ interface Props {
   addSize?: 'tiny' | 'small' | 'medium' | 'large';
   /** 每行操作按钮尺寸（默认 small） */
   btnSize?: 'tiny' | 'small' | 'medium' | 'large';
+  /** 整列表处于不可编辑态（如正在批量测试）：禁用编辑、右侧操作按钮与添加按钮，
+   *  并在每一行覆盖一层「测试缓冲」进度条效果 */
+  disabled?: boolean;
 }
 const props = withDefaults(defineProps<Props>(), {
   items: () => [],
@@ -35,6 +38,7 @@ const props = withDefaults(defineProps<Props>(), {
   showDelete: true,
   addSize: 'small',
   btnSize: 'small',
+  disabled: false,
 });
 
 const emit = defineEmits<{
@@ -98,12 +102,12 @@ function onTop(idx: number): void {
 <template>
   <div class="model-list-wrap">
     <TransitionGroup name="model-move" tag="div" class="model-list">
-      <div v-for="(it, idx) in items" :key="rowIds?.[idx] ?? idx" :class="['model-row']">
+      <div v-for="(it, idx) in items" :key="rowIds?.[idx] ?? idx" :class="['model-row', { 'is-testing': disabled }]">
         <!-- 每行内容由父级通过 #item 插槽提供（如 n-input 或 n-select），并直接双向绑定 items[index] -->
-        <slot name="item" :items="items" :index="idx" :item="it" />
+        <slot name="item" :items="items" :index="idx" :item="it" :disabled="disabled" />
         <n-tooltip v-if="showTop" trigger="hover">
           <template #trigger>
-            <n-button :size="btnSize" quaternary :disabled="idx === 0" @click="onTop(idx)">
+            <n-button :size="btnSize" quaternary :disabled="disabled || idx === 0" @click="onTop(idx)">
               <template #icon><n-icon><ChevronUpOutline /></n-icon></template>
             </n-button>
           </template>
@@ -111,7 +115,7 @@ function onTop(idx: number): void {
         </n-tooltip>
         <n-tooltip v-if="showMove" trigger="hover">
           <template #trigger>
-            <n-button :size="btnSize" quaternary :disabled="idx === 0" @click="onMove(idx, -1)">
+            <n-button :size="btnSize" quaternary :disabled="disabled || idx === 0" @click="onMove(idx, -1)">
               <template #icon><n-icon><ArrowUpOutline /></n-icon></template>
             </n-button>
           </template>
@@ -119,7 +123,7 @@ function onTop(idx: number): void {
         </n-tooltip>
         <n-tooltip v-if="showMove" trigger="hover">
           <template #trigger>
-            <n-button :size="btnSize" quaternary :disabled="idx === items.length - 1" @click="onMove(idx, 1)">
+            <n-button :size="btnSize" quaternary :disabled="disabled || idx === items.length - 1" @click="onMove(idx, 1)">
               <template #icon><n-icon><ArrowDownOutline /></n-icon></template>
             </n-button>
           </template>
@@ -127,16 +131,19 @@ function onTop(idx: number): void {
         </n-tooltip>
         <n-tooltip v-if="showDelete" trigger="hover">
           <template #trigger>
-            <n-button :size="btnSize" quaternary @click="onRemove(idx)">
+            <n-button :size="btnSize" quaternary :disabled="disabled" @click="onRemove(idx)">
               <template #icon><n-icon><TrashOutline /></n-icon></template>
             </n-button>
           </template>
           删除
         </n-tooltip>
+        <!-- 测试缓冲覆盖层：仅 disabled（测试中）时出现，覆盖整行 + 底部流动进度条 -->
+        <div v-if="disabled" class="model-row-overlay" aria-hidden="true"></div>
+        <div v-if="disabled" class="model-row-buffer" aria-hidden="true"><i></i></div>
       </div>
     </TransitionGroup>
     <!-- 添加按钮不占满宽度（去掉 block），尺寸默认 small 更清晰 -->
-    <n-button :size="addSize" class="model-add-btn" @click="onAdd">{{ addLabel }}</n-button>
+    <n-button :size="addSize" class="model-add-btn" :disabled="disabled" @click="onAdd">{{ addLabel }}</n-button>
   </div>
 </template>
 
@@ -159,6 +166,47 @@ function onTop(idx: number): void {
   border: 1px solid #eef0f3;
   border-radius: 8px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  position: relative;
+}
+/* 测试中：整行铺一层半透明白膜（覆盖编辑与操作），底部加流动进度条表示「正在测试」缓冲 */
+.model-row.is-testing {
+  border-color: #c7d2fe;
+}
+.model-row-overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.5);
+  cursor: progress;
+  z-index: 1;
+}
+.model-row-buffer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  border-radius: 0 0 8px 8px;
+  overflow: hidden;
+  background: rgba(99, 102, 241, 0.14);
+  z-index: 2;
+}
+.model-row-buffer > i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 38%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, transparent, #6366f1, transparent);
+  animation: model-row-buffer-slide 1.1s ease-in-out infinite;
+}
+@keyframes model-row-buffer-slide {
+  0% {
+    left: -40%;
+  }
+  100% {
+    left: 100%;
+  }
 }
 /* 关键：naive-ui 输入框/选择器的边框由 --n-border 系列变量控制（无 borderless prop），
    必须在这里把它置空，否则行卡片边框 + 内部控件边框 = 双层边框。

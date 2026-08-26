@@ -149,13 +149,8 @@ export interface ProviderLatency {
   error?: string;
 }
 
-/** 一键测试所有提供商的延迟：后端并发探测每个 provider 的每一个模型，返回逐 (provider, model) 耗时与成败 */
-export function testAllProviders(): Promise<{ results: ProviderLatency[] }> {
-  return request('/providers/latency', { method: 'POST' });
-}
-
 /** 测试「指定 provider」的全部模型可用性与延迟：向 /providers/latency 传 { provider } 做过滤，
- *  返回该 provider 下每个模型的探测结果（与 testAllProviders 同构，仅限制单个 provider）。 */
+ *  返回该 provider 下每个模型的探测结果。 */
 export function testProviderModels(provider: string): Promise<{ results: ProviderLatency[] }> {
   return request('/providers/latency', { method: 'POST', body: JSON.stringify({ provider }) });
 }

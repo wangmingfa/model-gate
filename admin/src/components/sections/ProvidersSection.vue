@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { ref, watch, h } from 'vue';
-import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NTag, NIcon, NDataTable, NEmpty, NInputNumber, NTooltip } from 'naive-ui';
-import { ServerOutline, SaveOutline, SpeedometerOutline } from '@vicons/ionicons5';
+import { ref, watch } from 'vue';
+import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NTag, NIcon, NInputNumber, NTooltip } from 'naive-ui';
+import { ServerOutline, SaveOutline } from '@vicons/ionicons5';
 import { useConfigStore, type ProviderRow } from '../../configStore';
 import ItemCard from '../ItemCard.vue';
 import SortableList from '../SortableList.vue';
-import { testAllProviders, type ProviderLatency } from '../../api';
+import { type ProviderLatency } from '../../api';
 
 const store = useConfigStore();
 
@@ -54,44 +54,6 @@ async function onSave(): Promise<void> {
   draft.value = JSON.parse(JSON.stringify(store.providers));
 }
 
-// 一键测试所有提供商的延迟：后端并发探测各 provider 首个模型，返回耗时与成败
-const testingAll = ref(false);
-const latencyResults = ref<ProviderLatency[] | null>(null);
-const latencyError = ref('');
-
-async function onTestAll(): Promise<void> {
-  testingAll.value = true;
-  latencyError.value = '';
-  try {
-    const res = await testAllProviders();
-    latencyResults.value = res.results;
-  } catch (e) {
-    latencyError.value = (e as Error).message;
-    latencyResults.value = null;
-  } finally {
-    testingAll.value = false;
-  }
-}
-
-const latencyColumns = [
-  { title: '提供商', key: 'provider', width: 120, ellipsis: { tooltip: true } },
-  { title: '模型', key: 'model', width: 250, ellipsis: { tooltip: true } },
-  {
-    title: '延迟',
-    key: 'ms',
-    width: 90,
-    render: (row: ProviderLatency) => (typeof row.ms === 'number' ? `${row.ms} ms` : '—'),
-  },
-  {
-    title: '状态',
-    key: 'status',
-    width: 80,
-    render: (row: ProviderLatency) =>
-      h(NTag, { type: row.ok ? 'success' : 'error', size: 'small' }, { default: () => (row.ok ? '正常' : '失败') }),
-  },
-  { title: '说明', key: 'error', minWidth: 120, ellipsis: { tooltip: true } },
-];
-
 /** 初始化该 provider 的单价表（按当前模型列表建 {prompt,completion}），保留已有值 */
 function initPricing(p: ProviderRow): void {
   const next: Record<string, { prompt: number; completion: number }> = {};
@@ -108,6 +70,11 @@ function modelResult(p: ProviderRow, model: string): ProviderLatency | undefined
   const entry = store.modelTests[p.name];
   if (!entry || entry.testing) return undefined;
   return entry.results.find((r) => r.model === model);
+}
+
+/** 该 provider 的模型列表是否处于「禁止编辑」态：正在批量测试，或正在测首个模型的连接 */
+function listTesting(p: ProviderRow): boolean {
+  return !!store.modelTests[p.name]?.testing || !!store.testStates[p.name]?.testing;
 }
 
 // 基于实测结果给出友好解读（不靠模型名猜测类型，完全依据上游真实返回）
@@ -138,33 +105,6 @@ function friendlyReason(r: ProviderLatency): string {
       <span class="card-title"><n-icon :size="16"><ServerOutline /></n-icon> 提供商（providers）</span>
     </template>
     <n-space vertical>
-      <!-- 一键延迟测试：按钮与结果同区，点击后结果紧邻按钮下方 -->
-      <div class="latency-panel">
-        <div class="latency-toolbar">
-          <n-button size="small" :loading="testingAll" @click="onTestAll">
-            <template #icon><n-icon><SpeedometerOutline /></n-icon></template>
-            测试所有模型延迟
-          </n-button>
-          <span v-if="testingAll" class="latency-hint">正在逐模型探测可用性与延迟…</span>
-        </div>
-
-        <div v-if="latencyResults || latencyError" class="latency-block">
-          <div class="trend-title">各模型延迟（逐模型 1-token 探测）</div>
-          <n-empty v-if="latencyError" description="请求失败" />
-          <n-empty v-else-if="latencyResults && latencyResults.length === 0" description="尚未配置任何 provider" />
-          <n-data-table
-            v-else
-            :columns="latencyColumns"
-            :data="latencyResults ?? []"
-            :row-key="(r: ProviderLatency) => `${r.provider}:${r.model}`"
-            size="small"
-            :bordered="false"
-            max-height="320"
-          >
-          </n-data-table>
-        </div>
-      </div>
-
       <n-collapse v-model:expanded-names="expandedNames">
         <n-collapse-item v-for="(p, i) in draft" :key="p._id" :name="p._id" arrow-placement="left">
           <template #header>
@@ -227,6 +167,7 @@ function friendlyReason(r: ProviderLatency): string {
                     type="primary"
                     secondary
                     :loading="store.fetchStates[p.name]?.fetching"
+                    :disabled="listTesting(p)"
                     @click="store.onFetchModels(p)"
                     style="pointer-events: auto"
                   >
@@ -257,10 +198,11 @@ function friendlyReason(r: ProviderLatency): string {
               <SortableList
                 v-model:items="p.models"
                 v-model:rowIds="p.modelRowIds"
+                :disabled="listTesting(p)"
                 add-label="+ 添加模型"
               >
-                <template #item="{ items, index }">
-                  <n-input v-model:value="items[index]" placeholder="模型 id，如 deepseek-chat" style="flex: 1; min-width: 0" />
+                <template #item="{ items, index, disabled }">
+                  <n-input v-model:value="items[index]" :disabled="disabled" placeholder="模型 id，如 deepseek-chat" style="flex: 1; min-width: 0" />
                   <!-- 该模型逐模型测试结果：输入框右侧标签，hover 显示详情 -->
                   <n-tooltip v-if="modelResult(p, items[index])" trigger="hover" placement="left">
                     <template #trigger>
@@ -270,7 +212,7 @@ function friendlyReason(r: ProviderLatency): string {
                         :bordered="false"
                         class="model-result-tag"
                       >
-                        {{ modelResult(p, items[index])!.ok ? '可用' : '不可用' }}
+                        {{ modelResult(p, items[index])!.ok ? `可用 ${modelResult(p, items[index])!.ms}ms` : '不可用' }}
                       </n-tag>
                     </template>
                     <div class="model-result-tip">
@@ -340,25 +282,6 @@ function friendlyReason(r: ProviderLatency): string {
 <style lang="scss">
 @use '../../styles/breakpoint' as *;
 
-.latency-panel {
-  background: #f7f8fa;
-  border: 1px solid #eef0f3;
-  border-radius: 10px;
-  padding: 12px 14px;
-  margin-bottom: 6px;
-}
-.latency-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.latency-hint {
-  font-size: 12px;
-  color: #6b7280;
-}
-.latency-block {
-  margin-top: 10px;
-}
 .trend-title {
   font-size: 13px;
   font-weight: 600;
