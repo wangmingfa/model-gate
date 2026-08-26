@@ -284,7 +284,7 @@ const callColumns = [
   </n-card>
 </template>
 
-<style lang="scss">
+<style lang="scss" scoped>
 @use '../../styles/breakpoint' as *;
 
 .stat-box {
