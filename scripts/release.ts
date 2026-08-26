@@ -408,12 +408,15 @@ async function main() {
     // 校验算出的新版本是否已被占用（交互模式此前未校验，会直接 publish 撞墙）
     // 若已占用：beta 通道的 iteration 自动顺延 +1，直到找到一个未占用版本；其他情况报错让用户重跑
     // versionExists 是 npm 网络查询，较慢且无输出，用 withSpinner 给出持续 loading（避免看起来卡死）
-    if (await withSpinner(`校验 ${newVer} 是否已被 npm 占用`, () => versionExists(pkg.name, newVer))) {
+    // 首查结果缓存进 occupied 变量：while 循环体里只查「下一版」，避免同一版本被查两次（重复 loading）
+    let occupied = await withSpinner(`校验 ${newVer} 是否已被 npm 占用`, () => versionExists(pkg.name, newVer));
+    if (occupied) {
       if (channel === 'beta' && bump === 'iteration') {
         let guard = 0;
-        while (await withSpinner(`校验 ${newVer} 是否已被 npm 占用`, () => versionExists(pkg.name, newVer))) {
+        while (occupied) {
           newVer = nextVersion(newVer, channel, 'iteration', false);
           if (++guard > 50) throw new Error('iteration 顺延超过 50 次仍被占用，请检查 npm 版本历史');
+          occupied = await withSpinner(`校验 ${newVer} 是否已被 npm 占用`, () => versionExists(pkg.name, newVer));
         }
         console.log(`\n⚠️  ${oldVer} 的下一版已被占用，已自动顺延到 ${newVer}`);
       } else {
