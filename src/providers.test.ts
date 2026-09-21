@@ -45,6 +45,28 @@ describe('chatWithFailover', () => {
     expect(j.model).toBe('fast');
   });
 
+  test('透传前清洗 messages：剔除客户端私有字段（如 agent），保留标准字段', async () => {
+    let sentMessages: unknown;
+    const fetchImpl = async (_url: string, init: RequestInit): Promise<Response> => {
+      sentMessages = JSON.parse(String(init.body)).messages;
+      return jsonResponse({ id: 's', object: 'chat.completion', model: 'deepseek-chat', choices: [] });
+    };
+    const body = {
+      model: 'fast',
+      messages: [
+        { role: 'system', content: 'sys', extra: 1 },
+        { role: 'user', content: 'hi', agent: 'builder', trace_id: 'abc' },
+        { role: 'assistant', name: 'bot', tool_calls: [{ id: 't1' }], reasoning_content: 'r', custom: true },
+      ],
+    };
+    await chatWithFailover(cfg, 'fast', body, fetchImpl as unknown as typeof fetch);
+    expect(sentMessages).toEqual([
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', name: 'bot', tool_calls: [{ id: 't1' }], reasoning_content: 'r' },
+    ]);
+  });
+
   test('第一个失败（网络错误）自动切第二个', async () => {
     let call = 0;
     const fetchImpl = async (url: string): Promise<Response> => {

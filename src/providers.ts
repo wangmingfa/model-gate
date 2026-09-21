@@ -23,6 +23,32 @@ export function extractErrorMessage(text: string): string | null {
   }
 }
 
+/**
+ * 客户端（IDE agent 等）会在 message 里附加私有字段（如 workbuddy 的 `agent`），
+ * OpenAI 兼容上游普遍做严格校验直接 400。透传前只保留标准字段。
+ */
+const MESSAGE_STANDARD_FIELDS = new Set([
+  'role',
+  'content',
+  'name',
+  'tool_calls',
+  'tool_call_id',
+  'function_call', // legacy
+  'reasoning_content', // DeepSeek R1 风格
+]);
+
+function sanitizeMessages(messages: unknown): unknown {
+  if (!Array.isArray(messages)) return messages;
+  return messages.map((m) => {
+    if (!m || typeof m !== 'object' || Array.isArray(m)) return m;
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(m as Record<string, unknown>)) {
+      if (MESSAGE_STANDARD_FIELDS.has(k)) out[k] = v;
+    }
+    return out;
+  });
+}
+
 export interface Usage {
   prompt_tokens?: number;
   completion_tokens?: number;
@@ -177,7 +203,14 @@ export async function chatWithFailover(
   for (const target of targets) {
     const { providerName, model } = parseTarget(target);
     const provider = cfg.providers[providerName];
+    if (!provider?.api_key || !provider.base_url) {
+      // 别名引用了未配置（或缺关键字段）的 provider：跳过该目标继续 failover，
+      // 而不是在构造 headers 时抛 TypeError 变成 500
+      errors.push({ target, message: `provider "${providerName}" 不存在或缺少 api_key/base_url`, status: null });
+      continue;
+    }
     const upstreamBody = { ...body, model };
+    if (Array.isArray(upstreamBody.messages)) upstreamBody.messages = sanitizeMessages(upstreamBody.messages);
     const headers = {
       'content-type': 'application/json',
       authorization: `Bearer ${provider.api_key}`,
@@ -291,6 +324,10 @@ export async function embeddingsWithFailover(
   for (const target of targets) {
     const { providerName, model } = parseTarget(target);
     const provider = cfg.providers[providerName];
+    if (!provider?.api_key || !provider.base_url) {
+      errors.push({ target, message: `provider "${providerName}" 不存在或缺少 api_key/base_url`, status: null });
+      continue;
+    }
     const upstreamBody = { ...body, model };
     const headers = {
       'content-type': 'application/json',

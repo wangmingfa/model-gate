@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, watch, nextTick } from 'vue';
 import { NCard, NButton, NSpace, NCollapse, NCollapseItem, NForm, NFormItem, NInput, NTag, NIcon, NInputNumber, NTooltip } from 'naive-ui';
 import { ServerOutline, SaveOutline, SwapVerticalOutline } from '@vicons/ionicons5';
 import { useConfigStore, type ProviderRow } from '../../configStore';
@@ -24,6 +24,19 @@ function addProvider(): void {
   const id = nextRowId();
   draft.value.push({ _id: id, name: '', base_url: '', api_key: '', models: [], modelRowIds: [] });
   expandedNames.value.push(id); // 新行默认展开
+  scrollToNewProvider(id);
+}
+
+// 等 Vue 渲染完（nextTick）再等展开动画结束 + 100ms 余量，布局稳定后滚动位置才准确
+function scrollToNewProvider(id: string): void {
+  void nextTick(() => {
+    setTimeout(() => {
+      document
+        .querySelector<HTMLElement>(`[data-provider-id="${id}"]`)
+        ?.closest('.n-collapse-item')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 400);
+  });
 }
 
 // store.providers 由 load() 异步填充；首次有数据时把草稿同步过来（用户尚未编辑则覆盖，
@@ -142,6 +155,7 @@ function friendlyReason(r: ProviderLatency): string {
             </span>
           </template>
           <ItemCard
+            :data-provider-id="p._id"
             :error="store.erroredProviders.has(p.name)"
             remove-tooltip="删除该提供商"
             @remove="removeProvider(i)"
