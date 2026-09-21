@@ -1,19 +1,19 @@
-// Kill leftover `bun run dev` processes and free their ports.
+// Kill leftover `npm run dev` processes and free their ports.
 // Usage:
-//   bun scripts/kill-dev.mjs        # kill for real
-//   bun scripts/kill-dev.mjs --dry  # list only, do not kill
+//   npm run kill-dev              # kill for real
+//   node scripts/kill-dev.mjs --dry  # list only, do not kill
 //
 // Strategy:
 //   1. Find PIDs listening on the dev ports (5173 vite, 8787 api).
 //   2. Find PIDs whose command line matches the dev signature
-//      (run dev / dev:api / dev:ui / vite / src/index.ts).
+//      (run dev / dev:api / dev:ui / vite / src/index.ts / tsx watch).
 //   3. Kill everything found (except ourselves).
 
 import { execSync, spawnSync } from 'node:child_process';
 import process from 'node:process';
 
 const PORTS = [5173, 8787];
-const CMD_SIGNATURES = ['run dev', 'dev:api', 'dev:ui', 'vite/bin/vite', 'src/index.ts'];
+const CMD_SIGNATURES = ['run dev', 'dev:api', 'dev:ui', 'vite/bin/vite', 'node_modules/vite', 'src/index.ts', 'tsx watch'];
 const DRY = process.argv.includes('--dry');
 
 const isWin = process.platform === 'win32';
@@ -100,7 +100,7 @@ const pids = new Set([...pidsFromPorts(), ...pidsFromCmdline()]);
 pids.delete(process.pid);
 
 if (pids.size === 0) {
-  console.log(DRY ? '[dry] no bun run dev processes or port occupation found' : 'no bun run dev processes or port occupation found');
+  console.log(DRY ? '[dry] no dev processes or port occupation found' : 'no dev processes or port occupation found');
 } else {
   console.log(`${DRY ? '[dry] ' : ''}found ${pids.size} process(es) to clean up:`);
   for (const p of [...pids].sort((a, b) => a - b)) killPid(p);

@@ -67,7 +67,7 @@ const aliasColumns = [
   { title: 'Tokens', key: 'tokens', width: 120, render: (r: StatsRow) => fmtTokens(r.tokens) },
   { title: '估算成本', key: 'cost', width: 120, render: (r: StatsRow) => fmtCost(r.cost) },
   { title: 'P95(ms)', key: 'p95Ms', width: 100, render: (r: StatsRow) => Math.round(r.p95Ms) },
-  { title: '', key: 'drill', width: 36, align: 'right', fixed: 'right', render: () => h(NIcon, { class: 'drill-icon', size: 16 }, { default: () => h(ChevronForwardOutline) }) },
+  { title: '', key: 'drill', width: 36, align: 'right' as const, fixed: 'right' as const, render: () => h(NIcon, { class: 'drill-icon', size: 16 }, { default: () => h(ChevronForwardOutline) }) },
 ];
 const keyColumns = [
   { title: '下游密钥', key: 'key', width: 360, render: (r: StatsRow) => maskKey(r.key) },
@@ -77,7 +77,7 @@ const keyColumns = [
   { title: 'Tokens', key: 'tokens', width: 120, render: (r: StatsRow) => fmtTokens(r.tokens) },
   { title: '估算成本', key: 'cost', width: 120, render: (r: StatsRow) => fmtCost(r.cost) },
   { title: 'P95(ms)', key: 'p95Ms', width: 100, render: (r: StatsRow) => Math.round(r.p95Ms) },
-  { title: '', key: 'drill', width: 36, align: 'right', fixed: 'right', render: () => h(NIcon, { class: 'drill-icon', size: 16 }, { default: () => h(ChevronForwardOutline) }) },
+  { title: '', key: 'drill', width: 36, align: 'right' as const, fixed: 'right' as const, render: () => h(NIcon, { class: 'drill-icon', size: 16 }, { default: () => h(ChevronForwardOutline) }) },
 ];
 
 const hasData = computed(() => (data.value?.overview.requests ?? 0) > 0);

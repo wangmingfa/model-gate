@@ -1,11 +1,13 @@
-import { describe, expect, test, afterEach } from 'bun:test';
+import { describe, expect, test, afterEach } from 'vitest';
 import { writeFileSync, readFileSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Config } from './config';
 import { validateConfig, loadConfig } from './config';
 import { createApp } from './app';
 import { configureLogging } from './logger';
 
-const tmpPath = `/tmp/mg-admin-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
+const tmpPath = join(tmpdir(), `mg-admin-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
 
 const base: Config = {
   port: 8787,
@@ -284,7 +286,6 @@ describe('POST /admin/api/test', () => {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });
-    // @ts-expect-error 注入 mock fetch
     globalThis.fetch = fetchImpl;
     const res = await adminReq('/api/test', { method: 'POST', body: JSON.stringify({ provider: 'deepseek', model: 'deepseek-chat' }) });
     const j = (await res.json()) as Record<string, any>;
@@ -296,7 +297,6 @@ describe('POST /admin/api/test', () => {
     writeConfig(base);
     const fetchImpl = async (): Promise<Response> =>
       new Response(JSON.stringify({ error: { message: 'invalid api key' } }), { status: 401 });
-    // @ts-expect-error 注入 mock fetch
     globalThis.fetch = fetchImpl;
     const res = await adminReq('/api/test', { method: 'POST', body: JSON.stringify({ provider: 'deepseek', model: 'deepseek-chat' }) });
     const j = (await res.json()) as Record<string, any>;
@@ -448,7 +448,7 @@ describe('单模型延迟探测（/api/providers/latency）', () => {
 
 describe('单次调用明细（/api/stats/details）', () => {
   test('按 alias 过滤返回该别名每次调用明细，按时间倒序', async () => {
-    const logPath = `/tmp/mg-details-${Date.now()}-${Math.random().toString(36).slice(2)}.log`;
+    const logPath = join(tmpdir(), `mg-details-${Date.now()}-${Math.random().toString(36).slice(2)}.log`);
     const now = Date.now();
     const mk = (alias: string, offsetMin: number, status: number, ms: number) => ({
       ts: new Date(now - offsetMin * 60_000).toISOString(),

@@ -1,8 +1,13 @@
 // 端到端冒烟测试：真实起 mock 上游 + 网关，走真实 HTTP 验证各端点与 failover、热加载。
-// 用法: bun scripts/smoke.ts   （自包含，无需 config.json；需未被占用 8787/9999 端口）
+// 用法: npx tsx scripts/smoke.ts   （自包含，无需 config.json；需未被占用 8787/8788/9999 端口）
 import { writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { spawn } from 'node:child_process';
+import { serve } from '@hono/node-server';
 import { loadConfig } from '../src/config';
 import { createApp } from '../src/app';
+import { serveApp, stopServer } from '../src/serve';
 
 // 内置 smoke 配置：自包含（provider 指向本地 mock 9999），不依赖用户 config.json 的具体内容
 const smokeConfig: Record<string, unknown> = {
@@ -25,6 +30,11 @@ function check(name: string, ok: boolean, extra = ''): void {
 }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** 用 node + tsx loader 起一个 TS 子进程（等价旧 Bun.spawn(['bun', script, ...])） */
+function spawnChild(args: string[]): ReturnType<typeof spawn> {
+  return spawn(process.execPath, ['--import', 'tsx', ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+}
+
 const encoder = new TextEncoder();
 function sseBody(): ReadableStream<Uint8Array> {
   return new ReadableStream({
@@ -39,36 +49,34 @@ function sseBody(): ReadableStream<Uint8Array> {
 
 // —— 1. 起 mock 上游（OpenAI 兼容 /v1/chat/completions）——
 let failMode = false; // 置位后 mock 对一切请求返回 503，用于实测 failover
-const mock = Bun.serve({
-  port: 9999,
-  async fetch(req) {
-    if (failMode) {
-      return Response.json({ error: { message: 'mock 进入故障模式' } }, { status: 503 });
+async function mockHandler(req: Request): Promise<Response> {
+  if (failMode) {
+    return Response.json({ error: { message: 'mock 进入故障模式' } }, { status: 503 });
+  }
+  const url = new URL(req.url);
+  if (req.method === 'POST' && url.pathname === '/v1/chat/completions') {
+    const body = (await req.json()) as { stream?: boolean; model?: string };
+    if (body.stream === true) {
+      return new Response(sseBody(), { status: 200, headers: { 'content-type': 'text/event-stream' } });
     }
-    const url = new URL(req.url);
-    if (req.method === 'POST' && url.pathname === '/v1/chat/completions') {
-      const body = (await req.json()) as { stream?: boolean; model?: string };
-      if (body.stream === true) {
-        return new Response(sseBody(), { status: 200, headers: { 'content-type': 'text/event-stream' } });
-      }
-      return Response.json({
-        id: 'm',
-        object: 'chat.completion',
-        model: body.model,
-        choices: [{ index: 0, message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
-        usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 },
-      });
-    }
-    return Response.json({ error: { message: 'not found' } }, { status: 404 });
-  },
-});
+    return Response.json({
+      id: 'm',
+      object: 'chat.completion',
+      model: body.model,
+      choices: [{ index: 0, message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 },
+    });
+  }
+  return Response.json({ error: { message: 'not found' } }, { status: 404 });
+}
+serve({ port: 9999, fetch: mockHandler });
 
 // —— 2. 起网关（内置 mock 配置写入临时文件供 admin 保存用，不触碰仓库 config.json）——
-const ADMIN_CFG = '/tmp/mg-smoke-admin.json';
+const ADMIN_CFG = join(tmpdir(), `mg-smoke-admin-${Date.now()}.json`);
 writeFileSync(ADMIN_CFG, JSON.stringify(smokeConfig, null, 2));
 const cfg = loadConfig(ADMIN_CFG);
 const app = createApp(() => cfg, { configPath: ADMIN_CFG });
-const gate = Bun.serve({ hostname: cfg.host, port: cfg.port, fetch: app.fetch });
+const gate = serveApp(app, { hostname: cfg.host, port: cfg.port });
 const BASE = `http://127.0.0.1:${cfg.port}`;
 const AUTH = { authorization: `Bearer ${cfg.keys[0].key}` };
 await sleep(300);
@@ -110,14 +118,14 @@ r = await fetch(`${BASE}/v1/chat/completions`, {
 });
 check('未知模型 → 400 model_not_found', r.status === 400 && (await r.json() as { error?: { code?: string } }).error?.code === 'model_not_found');
 
-r = await fetch(`${BASE}/v1/embeddings`, {
+r = await fetch(`${BASE}/v1/completions`, {
   method: 'POST',
   headers: { ...AUTH, 'content-type': 'application/json' },
   body: '{}',
 });
-check('未实现端点 /v1/embeddings → 501', r.status === 501);
+check('未实现端点 /v1/completions → 501', r.status === 501);
 
-// —— 3.5 admin API（本机回环访问；Bun.serve 会把 server 作为 env 传入，回环守卫生效）——
+// —— 3.5 admin API（本机回环访问；serveApp 会把来源 IP 注入 env，回环守卫生效）——
 const expectKey = cfg.providers.mock.api_key;
 
 // SPA 资源可访问（回归：vite base 必须带 /admin 前缀，否则 /assets/* 404）
@@ -137,9 +145,9 @@ const acfg = (await r.json()) as {
   keys: Array<{ name: string; key: string; created_at: string }>;
 };
 check(
-  'admin GET /api/config → 200 且 provider 密钥掩码、keys 为原始值',
+  'admin GET /api/config → 200 且 provider 密钥为真实值（前端遮挡）、keys 为原始值',
   r.status === 200 &&
-    acfg.providers?.mock?.api_key?.includes('****') &&
+    acfg.providers?.mock?.api_key === expectKey &&
     !acfg.keys[0]?.key?.includes('****') &&
     acfg.keys[0]?.key === cfg.keys[0].key,
 );
@@ -196,13 +204,14 @@ check(
 r = await fetch(`${BASE}/admin/api/config`, {
   method: 'PUT',
   headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({ ...acfg, aliases: { fast: ['ghost:model'] } }),
+  // alias 项不是 provider:model 形式 → validateConfig 直接抛错（引用不存在的 provider 属合法，仅 checkConfig 提示）
+  body: JSON.stringify({ ...acfg, aliases: { fast: ['just-a-model'] } }),
 });
 check('admin PUT 非法配置 → 400 且不写文件', r.status === 400);
 check('非法保存后配置未被破坏', loadConfig(ADMIN_CFG).providers.mock.api_key === expectKey);
 
 // mock-upstream.ts 支持 [端口] 参数（argv[2]）：spawn 到 9998，应监听 9998 而非默认 9999
-const mockProc = Bun.spawn(['bun', 'scripts/mock-upstream.ts', '9998'], { stdout: 'pipe', stderr: 'pipe' });
+const mockProc = spawnChild([resolve('scripts/mock-upstream.ts'), '9998']);
 await sleep(800);
 const mockPortCheck = await fetch('http://127.0.0.1:9998/v1/chat/completions', {
   method: 'POST',
@@ -222,15 +231,17 @@ r = await fetch(`${BASE}/v1/chat/completions`, {
 });
 const fj = (await r.json()) as { error?: { code?: string } };
 check('全部上游失败 → 502 upstream_failed（聚合错误）', r.status === 502 && fj.error?.code === 'upstream_failed');
-await gate.stop();
+stopServer(gate);
 
 // —— 5. 热加载：用 index.ts 子进程 + 临时配置实测轮询重载 ——
-const tmpCfgPath = '/tmp/mg-smoke-reload.json';
+const tmpCfgPath = join(tmpdir(), `mg-smoke-reload-${Date.now()}.json`);
 const baseCfg: Record<string, unknown> = { ...smokeConfig, port: 8788 };
 writeFileSync(tmpCfgPath, JSON.stringify({ ...baseCfg, port: 8788, aliases: { fast: ['mock:mock-model'] } }));
-const proc = Bun.spawn(['bun', 'src/index.ts', '-c', tmpCfgPath], { stdout: 'pipe', stderr: 'pipe' });
+const proc = spawnChild([resolve('src/index.ts'), '-c', tmpCfgPath]);
+const gateLogParts: string[] = [];
+proc.stdout?.on('data', (d: Buffer) => gateLogParts.push(d.toString()));
 try {
-  // bun 子进程冷启动较慢：最多等 8s，期间重试（连接拒绝不是失败，只是还没就绪）
+  // node + tsx 子进程冷启动较慢：最多等 8s，期间重试（连接拒绝不是失败，只是还没就绪）
   let ready = false;
   for (let i = 0; i < 16; i++) {
     await sleep(500);
@@ -261,7 +272,7 @@ try {
   proc.kill();
   await sleep(200);
 }
-const gateLog = await new Response(proc.stdout).text();
+const gateLog = gateLogParts.join('');
 if (gateLog) console.log('--- index.ts 子进程日志 ---\n' + gateLog.trim());
 
 console.log(failures === 0 ? '\n全部通过 ✅' : `\n${failures} 项失败 ❌`);

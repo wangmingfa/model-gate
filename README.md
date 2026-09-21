@@ -6,21 +6,13 @@ LLM API 中转网关：在一个配置文件里配置多家运营商的模型（
 
 ## 安装
 
-model-gate 基于 [bun](https://bun.sh/) 运行时，推荐用 bun 全局安装（npm 亦可）。
-
-**方式一：bun（推荐）**
-
-```bash
-bun install -g @wangmingfa/model-gate
-```
-
-**方式二：npm**
+model-gate 基于 [Node.js](https://nodejs.org/)（>= 20）运行，用 npm 全局安装：
 
 ```bash
 npm install -g @wangmingfa/model-gate
 ```
 
-> 安装后会得到一个全局命令 `model-gate`（无需 clone 源码、无需 `bun install` 依赖）。
+> 安装后会得到一个全局命令 `model-gate`（无需 clone 源码、无需手动装依赖）。
 
 ## 使用
 
@@ -202,7 +194,7 @@ agent 侧只需配置一处即可接入：
 
 ```bash
 export DEEPSEEK_API_KEY=sk-xxxx
-bun run dev          # 或 bun run model-gate.js（生产构建后）
+npm run dev          # 或 node model-gate.js（生产构建后）
 ```
 
 ### 配置热加载
@@ -420,15 +412,11 @@ model:    <config.json 里 aliases 的任意键>
 
 ### 本地环境
 
-前置：安装 [bun](https://bun.sh/)（运行时依赖，版本 >= 1.0.0）：
-
-```bash
-curl -fsSL https://bun.sh/install | bash
-```
+前置：安装 [Node.js](https://nodejs.org/)（>= 20，自带 npm）。
 
 ```bash
 # 1. 安装依赖（会同时安装 admin 子项目依赖）
-bun install
+npm install
 
 # 2. 复制示例配置并编辑（填你的各家 key）
 cp config.example.json config.json
@@ -438,50 +426,52 @@ vim config.json
 ### 开发模式
 
 ```bash
-bun run dev     # api 热重载 + Vite 前端热更新（并行起 Vite dev server 5173，代理 /admin/api 到网关），开箱即用
+npm run dev      # api 热重载（tsx watch）+ Vite 前端热更新（并行起 Vite dev server 5173，代理 /admin/api 到网关），开箱即用
 ```
 
 ### 生产构建
 
 ```bash
-bun run build                    # 内联前端资源（Vite 产物 admin/dist/ → src/admin-assets.generated.ts）并打包成单文件二进制 model-gate.js
-bun run model-gate.js            # 运行构建产物（等同于 node 跑这个 bun 二进制）
+npm run build              # 内联前端资源（Vite 产物 admin/dist/ → src/admin-assets.generated.ts）并用 esbuild 打包成单文件 model-gate.js
+node model-gate.js         # 运行构建产物
 ```
 
 ### 指定配置文件
 
 ```bash
 # 任意模式下均可：
-bun run dev -- --config /path/to/config.json
+npm run dev -- --config /path/to/config.json
 # 或设环境变量：
-MODEL_GATE_CONFIG=/path/to/config.json bun run dev
+MODEL_GATE_CONFIG=/path/to/config.json npm run dev
 ```
 
 ### 测试与类型检查
 
 ```bash
-bun test            # 单元测试（config 校验 / failover / SSE 改写 / 鉴权路由；默认忽略 admin/ 前端测试）
-bun run typecheck   # 后端 tsc + 前端 vue-tsc
+npm test            # 单元测试（vitest：config 校验 / failover / SSE 改写 / 鉴权路由；admin/ 前端测试在 admin 目录内单独跑）
+npm run typecheck   # 后端 tsc + 前端 vue-tsc
 ```
 
 没有真实上游 key 时，可用仓库自带的本地 mock 做端到端自测：
 
 ```bash
-bun scripts/mock-upstream.ts   # 起一个 OpenAI 兼容 mock 上游（端口 9999，需 config.json 指向它）
-bun scripts/smoke.ts           # 端到端冒烟：health/models/鉴权/chat 转发/流式/failover/热加载
+npx tsx scripts/mock-upstream.ts   # 起一个 OpenAI 兼容 mock 上游（端口 9999，需 config.json 指向它）
+npx tsx scripts/smoke.ts           # 端到端冒烟：health/models/鉴权/chat 转发/流式/failover/热加载
 ```
 
 ### 发布脚本
 
-- `bun run release [版本号]`：交互式（或显式传版本号）选择 latest/beta 通道与升级方式，自动 build 并发布到 npm，发布成功后自动 commit 版本变更。更多用法见 `scripts/release.ts` 顶部注释。
-- `bun run unpublish [版本号]`：撤销已发布的 npm 版本。不指定版本则列出最近 5 个用方向键选择；默认 `deprecate`（软撤销、安全），可加 `--hard` 真删除（仅发布 72h 内允许）。
+- `npm run tag`：交互式创建并推送发布 tag（选 latest/beta 通道与版本升级方式），推送后 GitHub Actions 自动构建发布。更多用法见 `scripts/tag.ts` 顶部注释。
+- `npm run release [版本号]`：交互式（或显式传版本号）选择 latest/beta 通道与升级方式，自动 build 并发布到 npm，发布成功后自动 commit 版本变更。更多用法见 `scripts/release.ts` 顶部注释。
+- `npm run unpublish [版本号]`：撤销已发布的 npm 版本。不指定版本则列出最近 5 个用方向键选择；默认 `deprecate`（软撤销、安全），可加 `--hard` 真删除（仅发布 72h 内允许）。
 
 ### 目录结构
 
 ```
 ├── config.example.json   # 配置示例（复制为 config.json 使用）
 ├── src/
-│   ├── index.ts          # 入口：加载配置、热加载、Bun.serve（含 init / help / version 子命令）
+│   ├── index.ts          # 入口：加载配置、热加载、启动 HTTP 服务（含 init / help / version 子命令）
+│   ├── serve.ts          # @hono/node-server 启动/优雅停服封装（回环 IP 注入）
 │   ├── app.ts            # Hono 路由：鉴权、日志中间件、/v1/* 端点
 │   ├── admin.ts          # /admin 管理后端 API（配置读写、测试连接、用量统计等）
 │   ├── config.ts         # 配置类型、校验、${ENV} 插值

@@ -1,14 +1,17 @@
 import { Hono } from 'hono';
 import type { Context, Next } from 'hono';
 import { readFileSync, writeFileSync, renameSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFile, access } from 'node:fs/promises';
+import { resolve, relative, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { Config } from './config';
 import { validateConfig, checkConfig, ConfigError } from './config';
 import { adminAssets } from './admin-assets.generated';
 import { getAccessLogPath } from './logger';
 
-/** 回环检查所需的 Bun server 形态（app.fetch(req, server) 时 c.env = server） */
+/** 回环检查所需的 server env 形态（app.fetch(req, env) 时 c.env = env；
+ *  由入口层按运行时注入 requestIP：Bun 传 server，Node 下由 src/serve.ts 从 socket 取） */
 export interface LoopbackEnv {
   requestIP?: (req: Request) => { address: string; family: string; port: number } | null;
 }
@@ -154,13 +157,22 @@ const MIME: Record<string, string> = {
   '.ico': 'image/x-icon',
 };
 
+async function fileExists(p: string): Promise<boolean> {
+  try {
+    await access(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function serveSpa(c: Context, dist: string, rel: string): Promise<Response> {
   const safe = rel
     .split('/')
     .filter((s) => s && s !== '..')
     .join('/');
   const key = safe || 'index.html';
-  // 优先读内嵌产物（单文件打包 bun xxx.js 时无磁盘 dist）
+  // 优先读内嵌产物（单文件打包 node model-gate.js 时无磁盘 dist）
   const embedded = adminAssets[key];
   if (embedded !== undefined) {
     const ext = key.slice(key.lastIndexOf('.'));
@@ -168,15 +180,21 @@ async function serveSpa(c: Context, dist: string, rel: string): Promise<Response
   }
   // 回退：磁盘 dist（开发/未重新生成内嵌时）
   const filePath = safe ? resolve(dist, safe) : resolve(dist, 'index.html');
-  if (!filePath.startsWith(`${dist}/`)) return c.text('forbidden', 403);
-  let f = Bun.file(filePath);
-  if (await f.exists()) return new Response(f);
+  // 路径遍历守卫：resolve 后的路径必须仍在 dist 目录内（Windows 路径用反斜杠，
+  // 不能用 startsWith(`${dist}/`) 比对；用 relative 判断是否向上越界）
+  const relInside = relative(dist, filePath);
+  if (relInside.startsWith(`..${sep}`) || resolve(dist, relInside) !== filePath) {
+    return c.text('forbidden', 403);
+  }
+  if (await fileExists(filePath)) return new Response(new Uint8Array(await readFile(filePath)));
   // SPA fallback（内嵌与磁盘都试试 index.html）
   const fallback = adminAssets['index.html'];
   if (fallback !== undefined) return new Response(fallback, { headers: { 'content-type': 'text/html; charset=utf-8' } });
-  f = Bun.file(resolve(dist, 'index.html'));
-  if (await f.exists()) return new Response(f, { headers: { 'content-type': 'text/html' } });
-  return c.text('admin UI 未构建：先运行 bun run build:admin 或 bun run embed:admin', 404);
+  const fallbackPath = resolve(dist, 'index.html');
+  if (await fileExists(fallbackPath)) {
+    return new Response(new Uint8Array(await readFile(fallbackPath)), { headers: { 'content-type': 'text/html' } });
+  }
+  return c.text('admin UI 未构建：先运行 npm run build（或开发模式由 Vite 5173 托管）', 404);
 }
 
 /**
@@ -789,7 +807,7 @@ export function createAdminApp(
 
   // 静态托管 admin/dist + SPA fallback（开发模式由 Vite 5173 托管，可不注册）
   if (opts?.includeStatic !== false) {
-    const DIST = resolve(import.meta.dir, '../admin/dist');
+    const DIST = fileURLToPath(new URL('../admin/dist', import.meta.url));
     admin.get('/', async (c) => serveSpa(c, DIST, ''));
     admin.get('/*', async (c) => {
       const rel = c.req.path.replace(/^\/admin\//, '');

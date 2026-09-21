@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 /**
  * 撤销已发布的 npm 版本。
  *
@@ -9,20 +9,21 @@
  *       从 registry 彻底移除该版本，不可恢复；仅限发布后 72 小时内，超时需联系 npm 支持。
  *
  * 用法：
- *   bun scripts/unpublish.ts                 # 交互：选版本 + 选撤销方式（带含义说明）
- *   bun scripts/unpublish.ts 0.1.1-beta.1    # 指定版本，仍交互选撤销方式
- *   bun scripts/unpublish.ts --hard          # 非交互快捷：直接走 unpublish（跳过方式选择）
- *   bun scripts/unpublish.ts 0.1.1-beta.1 --hard
- *   bun scripts/unpublish.ts 0.1.1-beta.1 --otp 123456
+ *   npm run unpublish                       # 交互：选版本 + 选撤销方式（带含义说明）
+ *   npm run unpublish 0.1.1-beta.1          # 指定版本，仍交互选撤销方式
+ *   npm run unpublish 0.1.1-beta.1 -- --hard
+ *   npm run unpublish 0.1.1-beta.1 -- --otp 123456
  *
  * 版本列表取 npm registry 上最近发布的 5 个（versions 数组尾部）。
  */
 
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import inquirer from 'inquirer';
+import { runCapture, runInherit } from './proc';
 
-const PKG_PATH = resolve(import.meta.dir, '..', 'package.json');
+const PKG_PATH = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'package.json');
 const RECENT = 5;
 
 export function readPkg(): { name: string } {
@@ -32,12 +33,7 @@ export function readPkg(): { name: string } {
 /** 拉取该包已发布的所有版本（升序），失败返回空数组 */
 export async function fetchVersions(name: string): Promise<string[]> {
   try {
-    const proc = Bun.spawn(['npm', 'view', name, 'versions', '--json'], {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-    const out = await new Response(proc.stdout).text();
-    const code = await proc.exited;
+    const { code, stdout: out } = await runCapture('npm', ['view', name, 'versions', '--json']);
     if (code !== 0) return [];
     const data = JSON.parse(out);
     // npm 单版本时可能返回字符串，多版本返回数组
@@ -49,13 +45,12 @@ export async function fetchVersions(name: string): Promise<string[]> {
 
 async function run(cmd: string, args: string[]): Promise<void> {
   console.log(`\n$ ${cmd} ${args.join(' ')}`);
-  const proc = Bun.spawn([cmd, ...args], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' });
-  const code = await proc.exited;
+  const code = await runInherit(cmd, args);
   if (code !== 0) throw new Error(`命令失败 (exit ${code}): ${cmd} ${args.join(' ')}`);
 }
 
 async function main() {
-  const argv = Bun.argv.slice(2);
+  const argv = process.argv.slice(2);
   const pkg = readPkg();
 
   // 解析参数
@@ -160,7 +155,9 @@ async function main() {
   }
 }
 
-if (import.meta.main) {
+const isMain =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+if (isMain) {
   main().catch((e) => {
     console.error(`\n❌ ${e.message}`);
     process.exit(1);

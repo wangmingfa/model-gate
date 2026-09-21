@@ -20,7 +20,7 @@ interface ModelOption extends SelectOption {
   model?: string;
 }
 const baseModelOptions = computed<(SelectOption | SelectGroupOption)[]>(() => {
-  const list = store.providers.length ? store.providers : draft.value;
+  const list = store.providers;
   return list
     .filter((p) => p.name && p.models.length)
     .map((p) => ({
@@ -58,7 +58,7 @@ function nextRowId(): string {
 
 function addAlias(): void {
   const id = nextRowId();
-  draft.value.push({ _id: id, name: '', targets: [] });
+  draft.value.push({ _id: id, name: '', targets: [], targetRowIds: [] });
   expandedNames.value.push(id); // 新行默认展开
 }
 

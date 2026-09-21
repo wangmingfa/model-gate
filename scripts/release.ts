@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 /**
  * 一键发布到 npm。
  *
@@ -6,12 +6,12 @@
  *   1. 选择发布通道：latest / beta（默认 beta）
  *   2. 选择版本升级：major / minor / patch / iteration（beta 默认 iteration，latest 默认 patch）
  *   3. 方向键确认发布
- *   4. 自动：写回 package.json version → bun run build → npm publish（beta 带 --tag beta）
+ *   4. 自动：写回 package.json version → npm run build → npm publish（beta 带 --tag beta）
  *   5. 发布成功后自动 git commit package.json 的版本变更（不 push）
  *
  * 也支持非交互（CI / 脚本调用）：
- *   bun scripts/release.ts <latest|beta> <major|minor|patch|iteration> [otp]   # 旧版：指定通道+升级
- *   bun scripts/release.ts 0.0.0-beta.1 [--otp xxx]                            # 显式版本号：跳过通道/升级选择，仅确认一次
+ *   npx tsx scripts/release.ts <latest|beta> <major|minor|patch|iteration> [otp]   # 旧版：指定通道+升级
+ *   npx tsx scripts/release.ts 0.0.0-beta.1 [--otp xxx]                            # 显式版本号：跳过通道/升级选择，仅确认一次
  *     - 传入合法版本号（x.y.z 或 x.y.z-beta.N）即视为显式指定，自动推断通道（带 -beta 后缀→beta）
  *     - 自动校验该版本号未被 npm 占用，已占用则报错退出
  *     - 仅做一次发布确认，不再询问通道与升级方式
@@ -24,10 +24,12 @@
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import inquirer from 'inquirer';
+import { runCapture, runInherit } from './proc';
 
-const PKG_PATH = resolve(import.meta.dir, '..', 'package.json');
+const PKG_PATH = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'package.json');
 
 /**
  * 轻量终端 spinner：执行异步任务期间显示旋转动画 + 文案，
@@ -112,13 +114,7 @@ async function withRetry<T>(
  * 避免把网络抖动误判成「从未发布」。
  */
 async function npmViewVersions(name: string): Promise<{ found: boolean; versions: string[] }> {
-  const proc = Bun.spawn(['npm', 'view', name, 'versions', '--json'], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
-  const out = await new Response(proc.stdout).text();
-  const err = await new Response(proc.stderr).text();
-  const code = await proc.exited;
+  const { code, stdout: out, stderr: err } = await runCapture('npm', ['view', name, 'versions', '--json']);
   if (code === 0) {
     try {
       const parsed = JSON.parse(out);
@@ -194,13 +190,7 @@ export function isValidVersion(v: string): boolean {
  *   - 抛错                             传输 / 网络等临时性错误（需重试或终止）
  */
 async function npmViewVersionExact(name: string, version: string): Promise<{ exists: boolean }> {
-  const proc = Bun.spawn(['npm', 'view', `${name}@${version}`, 'version'], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
-  const out = await new Response(proc.stdout).text();
-  const err = await new Response(proc.stderr).text();
-  const code = await proc.exited;
+  const { code, stdout: out, stderr: err } = await runCapture('npm', ['view', `${name}@${version}`, 'version']);
   if (code === 0) return { exists: out.trim() === version };
   if (/E?404|Not Found/i.test(err)) return { exists: false };
   throw new Error(`npm view 查询失败 (exit ${code}): ${(err.trim() || out.trim()).slice(0, 300)}`);
@@ -323,8 +313,7 @@ export async function pick<T extends string>(
 
 export async function run(cmd: string, args: string[]): Promise<void> {
   console.log(`\n$ ${cmd} ${args.join(' ')}`);
-  const proc = Bun.spawn([cmd, ...args], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' });
-  const code = await proc.exited;
+  const code = await runInherit(cmd, args);
   if (code !== 0) throw new Error(`命令失败 (exit ${code}): ${cmd} ${args.join(' ')}`);
 }
 
@@ -335,10 +324,9 @@ export async function run(cmd: string, args: string[]): Promise<void> {
  * 登录成功后再次校验，确保后续 publish 不会因未登录而 404 / ENEEDAUTH。
  */
 async function ensureNpmLogin(): Promise<void> {
-  const whoami = await Bun.spawn(['npm', 'whoami'], { stdout: 'pipe', stderr: 'pipe' });
-  const code = await whoami.exited;
-  if (code === 0) {
-    const user = (await new Response(whoami.stdout).text()).trim();
+  const whoami = await runCapture('npm', ['whoami']);
+  if (whoami.code === 0) {
+    const user = whoami.stdout.trim();
     console.log(`\n✔ npm 已登录: ${user}`);
     return;
   }
@@ -349,20 +337,20 @@ async function ensureNpmLogin(): Promise<void> {
   console.log(`请完成 npm 登录（会打开浏览器 / 输入凭证）：`);
   await run('npm', ['login']);
   // 登录后再次确认
-  const recheck = await Bun.spawn(['npm', 'whoami'], { stdout: 'pipe', stderr: 'pipe' });
-  if ((await recheck.exited) !== 0) {
+  const recheck = await runCapture('npm', ['whoami']);
+  if (recheck.code !== 0) {
     throw new Error('npm login 未完成或失败，请检查登录状态后重试。');
   }
-  console.log(`✔ npm 登录成功: ${(await new Response(recheck.stdout).text()).trim()}`);
+  console.log(`✔ npm 登录成功: ${recheck.stdout.trim()}`);
 }
 
 async function main() {
-  const argv = Bun.argv.slice(2);
+  const argv = process.argv.slice(2);
 
   // 解析可选参数：
-  //   bun run release <version> [--otp xxx]
-  //   bun run release <channel> <bump> [otp]   （旧的非交互用法仍兼容）
-  //   bun run release                            （全交互）
+  //   npm run release <version> [--otp xxx]
+  //   npm run release <channel> <bump> [otp]   （旧的非交互用法仍兼容）
+  //   npm run release                            （全交互）
   let explicitVersion: string | undefined;
   let otp: string | undefined;
   const positional: string[] = [];
@@ -472,9 +460,9 @@ async function main() {
   writeFileSync(PKG_PATH, JSON.stringify(pkg, null, 2) + '\n', 'utf-8');
   console.log(`\n✓ package.json version → ${newVer}`);
 
-  // 2. build（embed + bun build，产出 model-gate.js）
-  console.log('\n🔧 正在构建产物 model-gate.js（embed + bun build）...');
-  await run('bun', ['run', 'build']);
+  // 2. build（embed + esbuild 打包，产出 model-gate.js）
+  console.log('\n🔧 正在构建产物 model-gate.js（embed + esbuild）...');
+  await run('npm', ['run', 'build']);
 
   // 3. publish
   console.log(`\n🚀 正在发布到 npm（${channel}）...`);
@@ -493,13 +481,8 @@ async function main() {
 /** 发布成功后提交 package.json 的版本变更（不 push，由用户自行决定） */
 async function gitCommitRelease(name: string, version: string, channel: Channel): Promise<void> {
   // 仅在 git 仓库内、且 package.json 确有改动时才提交
-  const statusProc = Bun.spawn(['git', 'status', '--porcelain', 'package.json'], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
-  const statusOut = await new Response(statusProc.stdout).text();
-  await statusProc.exited;
-  if (!statusOut.trim()) {
+  const status = await runCapture('git', ['status', '--porcelain', 'package.json']);
+  if (!status.stdout.trim()) {
     console.log('\nℹ️  package.json 无改动，跳过 commit。');
     return;
   }
@@ -509,7 +492,9 @@ async function gitCommitRelease(name: string, version: string, channel: Channel)
   console.log(`\n✓ 已提交版本变更（${msg}）。未自动 push，请按需手动推送。`);
 }
 
-if (import.meta.main) {
+const isMain =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+if (isMain) {
   main().catch((e) => {
     console.error(`\n❌ ${e.message}`);
     process.exit(1);

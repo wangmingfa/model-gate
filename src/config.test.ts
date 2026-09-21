@@ -1,5 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
-import { describe, expect, test } from 'bun:test';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, expect, test } from 'vitest';
 import { loadConfig, validateConfig, checkConfig, interpolateEnv, ConfigError } from './config';
 
 const base = {
@@ -26,7 +28,7 @@ const base = {
 };
 
 function writeTmp(name: string, content: unknown): string {
-  const path = `/tmp/mg-test-${name}-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
+  const path = join(tmpdir(), `mg-test-${name}-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
   writeFileSync(path, JSON.stringify(content));
   return path;
 }
@@ -113,12 +115,12 @@ describe('loadConfig', () => {
   });
 
   test('文件不存在抛错', () => {
-    expect(() => loadConfig('/tmp/definitely-not-exists-mg.json')).toThrow(ConfigError);
+    expect(() => loadConfig(join(tmpdir(), 'definitely-not-exists-mg.json'))).toThrow(ConfigError);
   });
 
   test('非法 JSON 抛错', () => {
-    const path = '/tmp/mg-bad-json.json';
-    require('node:fs').writeFileSync(path, '{not json');
+    const path = join(tmpdir(), `mg-bad-json-${Date.now()}.json`);
+    writeFileSync(path, '{not json');
     expect(() => loadConfig(path)).toThrow(/不是合法 JSON/);
   });
 });

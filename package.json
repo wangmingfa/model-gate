@@ -12,7 +12,7 @@
     "config.example.json"
   ],
   "engines": {
-    "bun": ">=1.0.0"
+    "node": ">=20"
   },
   "repository": {
     "type": "git",
@@ -34,25 +34,31 @@
   "author": "wangmingfa",
   "license": "MIT",
   "scripts": {
-    "dev": "bun scripts/check-dev-ports.ts && bun run --parallel dev:api dev:ui",
-    "dev:api": "MODEL_GATE_DEV=1 NODE_ENV=development bun scripts/ensure-admin-assets.ts && bun --watch src/index.ts",
-    "dev:ui": "cd admin && bun run dev",
-    "embed": "bun install --cwd admin && bun run --cwd admin build && bun scripts/embed-assets.ts",
-    "build": "bun run embed && bun build src/index.ts --target=bun --minify --outfile model-gate.js",
-    "release": "bun scripts/release.ts",
-    "tag": "bun scripts/tag.ts",
-    "unpublish": "bun scripts/unpublish.ts",
-    "test": "bun test --path-ignore-patterns=admin",
-    "typecheck": "bun node_modules/typescript/bin/tsc --noEmit && bun run --cwd admin typecheck",
-    "kill-dev": "bun scripts/kill-dev.mjs",
-    "postinstall": "bun install --cwd ./admin"
+    "dev": "tsx scripts/check-dev-ports.ts && concurrently -n api,ui -c cyan,green \"npm:dev:api\" \"npm:dev:ui\"",
+    "dev:api": "cross-env MODEL_GATE_DEV=1 tsx scripts/ensure-admin-assets.ts && cross-env MODEL_GATE_DEV=1 tsx watch src/index.ts",
+    "dev:ui": "npm run dev --prefix admin",
+    "embed": "npm install --prefix admin && npm run build --prefix admin && tsx scripts/embed-assets.ts",
+    "build": "npm run embed && node scripts/build.mjs",
+    "release": "tsx scripts/release.ts",
+    "tag": "tsx scripts/tag.ts",
+    "unpublish": "tsx scripts/unpublish.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit && npm run typecheck --prefix admin",
+    "kill-dev": "node scripts/kill-dev.mjs",
+    "postinstall": "npm install --prefix admin"
   },
   "dependencies": {
+    "@hono/node-server": "^2.1.1",
     "hono": "^4.6.0"
   },
   "devDependencies": {
-    "@types/bun": "^1.1.0",
+    "@types/node": "^26.6.2",
+    "concurrently": "^10.0.5",
+    "cross-env": "^10.1.0",
+    "esbuild": "^0.28.2",
     "inquirer": "^14.1.0",
-    "typescript": "^5.0.0"
+    "tsx": "^4.23.15",
+    "typescript": "^5.0.0",
+    "vitest": "^5.0.1"
   }
 }

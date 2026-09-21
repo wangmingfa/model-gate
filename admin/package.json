@@ -4,10 +4,10 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "bun node_modules/vite/bin/vite.js",
-    "build": "bun node_modules/vite/bin/vite.js build",
-    "test": "bun node_modules/vitest/vitest.mjs run",
-    "typecheck": "bun node_modules/vue-tsc/bin/vue-tsc.js --noEmit"
+    "dev": "vite",
+    "build": "vite build",
+    "test": "vitest run",
+    "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
     "@vicons/ionicons5": "^0.13.0",

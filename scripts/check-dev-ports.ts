@@ -1,4 +1,4 @@
-// dev 端口预检：在 `bun run dev` 启动前检查 dev 端口是否被占用。
+// dev 端口预检：在 `npm run dev` 启动前检查 dev 端口是否被占用。
 //
 // 占用时：列出每个端口的占用进程（PID + 名称 + 命令行），交互询问是否杀死；
 //   - 用户确认 → 杀掉后退出码 0，触发 `&&` 后续的 dev 启动
@@ -8,6 +8,7 @@
 // dev 端口：8787=API（dev:api）、5173=admin UI（dev:ui / vite）。
 
 import { spawnSync, execSync } from 'node:child_process';
+import { createInterface } from 'node:readline/promises';
 
 const PORTS = [8787, 5173];
 const isWin = process.platform === 'win32';
@@ -91,19 +92,23 @@ function describe(pids: number[]): Map<number, ProcInfo> {
 function waitUntilFree(port: number): void {
   for (let i = 0; i < 20; i++) {
     if (pidsOnPort(port).length === 0) return;
-    // 阻塞式短暂等待（bun 下可用）
+    // 阻塞式短暂等待（同步轮询期间不能用 setTimeout）
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
   }
 }
 
-function ask(question: string): boolean {
-  const promptFn = (globalThis as any).prompt as ((q?: string) => string | null) | undefined;
-  if (typeof promptFn !== 'function' || !process.stdin.isTTY) {
-    console.log('（非交互环境，无法确认）请手动处理占用进程后重试，或运行 `bun run kill-dev`。');
+async function ask(question: string): Promise<boolean> {
+  if (!process.stdin.isTTY) {
+    console.log('（非交互环境，无法确认）请手动处理占用进程后重试，或运行 `npm run kill-dev`。');
     return false;
   }
-  const ans = promptFn(`${question} (y/N) `);
-  return ans !== null && ans.trim().toLowerCase() === 'y';
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const ans = await rl.question(`${question} (y/N) `);
+    return ans.trim().toLowerCase() === 'y';
+  } finally {
+    rl.close();
+  }
 }
 
 const occupied = new Map<number, number[]>();
@@ -132,9 +137,9 @@ for (const [port, pids] of occupied) {
   console.log('');
 }
 
-const ok = ask('是否杀掉以上占用进程并继续启动 dev？');
+const ok = await ask('是否杀掉以上占用进程并继续启动 dev？');
 if (!ok) {
-  console.log('已取消，未启动 dev。可手动处理后重试，或运行 `bun run kill-dev`。');
+  console.log('已取消，未启动 dev。可手动处理后重试，或运行 `npm run kill-dev`。');
   process.exit(1);
 }
 

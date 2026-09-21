@@ -1,23 +1,5 @@
-import os from 'node:os';
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
-
-// bun 在 Windows 上对非 ASCII 网卡名（如“以太网 2”）会按 Latin-1 误解 UTF-8 字节，
-// vite 启动横幅照打就出现乱码（ä»¥å¤ªç½）。这里识别并修复后再交给 vite 打印。
-const looksMojibake = (s: string) => /[^\x00-\x7f]/.test(s) && !/[^\x00-\xff]/.test(s);
-const networkInterfaces = os.networkInterfaces.bind(os);
-os.networkInterfaces = (...args: Parameters<typeof networkInterfaces>) => {
-  const result = networkInterfaces(...args);
-  for (const name of Object.keys(result)) {
-    if (!looksMojibake(name)) continue;
-    const fixed = Buffer.from(name, 'latin1').toString('utf8');
-    if (fixed !== name && !fixed.includes('\ufffd')) {
-      result[fixed] = result[name];
-      delete result[name];
-    }
-  }
-  return result;
-};
 
 export default defineConfig(async () => {
   const plugins = [vue()];

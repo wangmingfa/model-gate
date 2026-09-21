@@ -1,11 +1,33 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 import { statSync, existsSync, writeFileSync, readSync, realpathSync, readFileSync } from 'node:fs';
 import { networkInterfaces, homedir } from 'node:os';
 import { resolve, dirname } from 'node:path';
+import { spawn } from 'node:child_process';
 import { loadConfig, ConfigError } from './config';
 import type { Config } from './config';
 import { createApp } from './app';
 import { configureLogging } from './logger';
+import { serveApp, stopServer } from './serve';
+
+/** 跨平台执行子进程并捕获输出（Windows 下 npm 是 npm.cmd，需显式后缀） */
+function toCmd(cmd: string): string {
+  if (process.platform !== 'win32') return cmd;
+  if (cmd === 'npm') return 'npm.cmd';
+  if (cmd === 'npx') return 'npx.cmd';
+  return cmd;
+}
+
+function runCapture(cmd: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+  return new Promise((resolveP) => {
+    const p = spawn(toCmd(cmd), args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    p.stdout.on('data', (d: Buffer) => (stdout += d.toString()));
+    p.stderr.on('data', (d: Buffer) => (stderr += d.toString()));
+    p.on('error', (e) => resolveP({ code: -1, stdout, stderr: stderr + String(e) }));
+    p.on('close', (code) => resolveP({ code: code ?? -1, stdout, stderr }));
+  });
+}
 
 function argValue(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -177,59 +199,31 @@ if (subcommand === 'init') {
 }
 
 // 子命令：model-gate upgrade [@beta] —— 升级到最新版本（默认 latest，指定 @beta 升级到最新 beta）
-// 优先用 bun 全局安装；bun 不可用则提示用户先安装 bun
+// 通过 npm 全局安装完成升级
 if (subcommand?.startsWith('upgrade')) {
   try {
     const tag = subcommand.includes('@') ? subcommand.split('@')[1] : 'latest';
-    const pkgName = 'wangmingfa/model-gate'; // 不带 @，npm/bun install -g 接受 @scope/name 写法
-    const spec = `@${pkgName}@${tag}`;
+    const pkgName = '@wangmingfa/model-gate';
+    const spec = tag === 'latest' ? pkgName : `${pkgName}@${tag}`;
 
-    // 优先 bun
-    const bunPath = typeof Bun !== 'undefined' ? Bun.which('bun') : undefined;
-    if (bunPath) {
-      console.log(`[model-gate] 正在用 bun 升级到 ${tag} 版本: ${spec}`);
-      const proc = Bun.spawn(['bun', 'install', '-g', spec], {
-        stdout: 'pipe',
-        stderr: 'pipe',
-      });
-      // 流式转发 stdout/stderr（保留实时进度），同时把两份输出都收集进 outBuf
-      // 用于解析真实版本号——bun 的 "installed @...@x.y.z" 摘要行可能落在 stderr 流
-      let outBuf = '';
-      const drain = async (
-        stream: ReadableStream<Uint8Array>,
-        sink: (s: string) => void,
-      ) => {
-        const reader = stream.getReader();
-        const decoder = new TextDecoder();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const chunk = decoder.decode(value, { stream: true });
-          outBuf += chunk;
-          sink(chunk);
-        }
-      };
-      await Promise.all([
-        drain(proc.stdout, (s) => process.stdout.write(s)),
-        drain(proc.stderr, (s) => process.stderr.write(s)),
-      ]);
-      const code = await proc.exited;
-      if (code === 0) {
-        // 从 bun 安装输出解析真实解析到的版本（如 0.0.1-beta.10），而非 tag（@beta）
-        const m = outBuf.match(/installed\s+@?[\w/-]+@([\w.-]+)/);
-        const resolved = m?.[1] ?? null;
-        const finalSpec = resolved ? `@${pkgName}@${resolved}` : spec;
-        console.log(`\n✅ 已升级到 ${finalSpec}，请重启 model-gate 生效`);
-        process.exit(0);
-      }
-      // bun 报错但不一定是「找不到 bun」—— 仍提示安装以确保清晰
-      console.error(`\n❌ bun 升级失败（exit ${code}）。`);
+    // 先解析 tag → 真实版本号（npm view 查 dist-tag 指向的版本，用于展示与手动升级提示）
+    console.log(`[model-gate] 正在查询 ${spec} 的最新版本...`);
+    const view = await runCapture('npm', ['view', spec, 'version']);
+    const resolved = view.code === 0 ? view.stdout.trim() : null;
+    if (resolved) {
+      console.log(`[model-gate] ${tag} → ${pkgName}@${resolved}`);
     }
 
-    // bun 不可用 / 失败：提示安装（不 fallback 到 npm，按需求仅提示）
-    console.error(`\n⚠️  未检测到可用的 bun，无法自动升级。`);
-    console.error(`   请先安装 bun： https://bun.sh/docs/install`);
-    console.error(`   或手动升级： bun install -g ${spec}`);
+    const installSpec = resolved ? `${pkgName}@${resolved}` : spec;
+    console.log(`[model-gate] 正在用 npm 全局升级: ${installSpec}`);
+    const inst = await runCapture('npm', ['install', '-g', installSpec]);
+    if (inst.code === 0) {
+      console.log(`\n✅ 已升级到 ${installSpec}，请重启 model-gate 生效`);
+      process.exit(0);
+    }
+    console.error(`\n❌ npm 升级失败（exit ${inst.code}）。`);
+    if (inst.stderr.trim()) console.error(inst.stderr.trim());
+    console.error(`   或手动升级： npm install -g ${spec}`);
     process.exit(1);
   } catch (e) {
     console.error(`[model-gate] 升级失败: ${(e as Error).message}`);
@@ -309,21 +303,12 @@ setInterval(() => {
 const includeAdminStatic = process.env.MODEL_GATE_DEV !== '1';
 const app = createApp(() => cfg, { configPath, includeAdminStatic });
 
-// 显式接管终止信号并优雅停服：避免 bun run --parallel 下 SIGINT 传播失败导致 socket 未释放、端口残留占用
-const server = Bun.serve({
-  hostname: cfg.host,
-  port: cfg.port,
-  // 允许长耗时请求（如一键测所有提供商延迟，最坏等最慢 provider）：
-  // 默认 idleTimeout 仅 10s，会把这类请求掐断导致前端「请求失败」
-  idleTimeout: 180,
-  // 把 Bun server 作为 env 传入，让 /admin 的回环检查能拿到 requestIP
-  fetch: (req, server) => app.fetch(req, server),
-});
+// 显式接管终止信号并优雅停服：进程收到 SIGINT/SIGTERM 时关闭 server、断开 keep-alive 连接、释放端口
+const server = serveApp(app, { hostname: cfg.host, port: cfg.port });
 
 function shutdown(signal: string): void {
   console.log(`[model-gate] 收到 ${signal}，正在关闭...`);
-  server.stop(true);
-  process.exit(0);
+  stopServer(server, { onClosed: () => process.exit(0), forceExitAfterMs: 1500 });
 }
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));

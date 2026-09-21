@@ -1,4 +1,4 @@
-import { describe, expect, test, afterEach } from 'bun:test';
+import { describe, expect, test, afterEach } from 'vitest';
 import type { Config } from './config';
 import { createApp } from './app';
 
@@ -100,7 +100,6 @@ describe('routes', () => {
   });
 
   test('chat/completions 全链路：mock 上游，返回别名改写后的响应', async () => {
-    // @ts-expect-error 测试注入 mock fetch
     globalThis.fetch = async () =>
       new Response(
         JSON.stringify({ id: 'x', object: 'chat.completion', model: 'deepseek-chat', choices: [], usage: { total_tokens: 3 } }),

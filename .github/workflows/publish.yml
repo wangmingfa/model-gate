@@ -4,8 +4,8 @@
 # 「这个发布请求来自我信任的 GitHub 仓库 + 此 workflow」→ 直接发布并自动生成 provenance。
 #
 # 发布流程：
-#   git tag v0.0.2              # 预发布用 v0.0.2-beta.1（含 -beta.N 后缀自动走 beta dist-tag）
-#   git push origin v0.0.2
+#   npm run tag                  # 交互式：选通道（latest/beta）+ 版本升级，创建并推送 tag
+#   （或手动）git tag v0.0.2 && git push origin v0.0.2
 # （发布版本号与 tag 自动对齐，见 Sync version from tag 步骤）
 #
 # 前置（一次性，需你本人在 npm 站点做）：
@@ -15,8 +15,9 @@
 #   Workflow filename:   publish.yml
 #   Allowed action:      npm publish   (直接发布，不要选 stage-only)
 #
-# 说明：仓库提交的是 bun.lock（bun 工具链，无 package-lock.json），CI 用 bun 安装依赖并构建；
-#      发布用 Node 24 自带的 npm（Trusted Publishing 要求 npm ≥ 11.5，Node 24 满足）。
+# 说明：纯 Node 工具链（tsx 开发运行、esbuild 打包、vitest 测试），CI 用 npm ci
+#      安装依赖（根 + admin 各自的 package-lock.json）；发布用 Node 24 自带的 npm
+#      （Trusted Publishing 要求 npm ≥ 11.5，Node 24 满足）。
 
 name: Publish Package
 
@@ -38,12 +39,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Bun（安装依赖 + 构建用）
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Setup Node（npm version 同步 + npm publish 用）
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -52,18 +48,18 @@ jobs:
 
       - name: Check versions
         run: |
-          bun --version
           node --version
           npm --version
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        # npm ci 会执行根 postinstall（npm install --prefix admin 安装前端依赖）
+        run: npm ci
 
       - name: Build（single-file bundle，内嵌 admin UI）
-        run: bun run build
+        run: npm run build
 
       - name: Test
-        run: bun test --path-ignore-patterns=admin
+        run: npm test
 
       - name: Sync version from tag
         # 确保发布版本与 tag 一致（即使忘记先改 package.json 也不至于发旧号）

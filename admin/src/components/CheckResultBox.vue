@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { NIcon, NTag } from 'naive-ui';
 import { AlertCircleOutline, CheckmarkCircleOutline } from '@vicons/ionicons5';
-import type { ConfigIssue } from '../../api';
+import type { ConfigIssue } from '../api';
 
 defineProps<{ issues: ConfigIssue[] | null }>();
 </script>

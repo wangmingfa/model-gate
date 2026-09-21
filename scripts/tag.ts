@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 /**
  * 交互式创建发布 tag 并推送（触发 GitHub Actions 自动发布到 npm）。
  *
@@ -9,7 +9,7 @@
  *      本地 package.json 可能落后于远端，以远端为准）
  *   3. 确认 → 本地打 annotated tag → 推送 origin
  *
- * 也支持非交互：bun scripts/tag.ts <version>   # 显式版本号，跳过通道/升级选择
+ * 也支持非交互：npm run tag -- <version>       # 显式版本号，跳过通道/升级选择
  *   - 校验版本号合法且对应 tag 未被本地/远端占用
  *
  * tag 命名：v<version>；含 -beta.N 后缀的 tag 触发的 CI 发布自动走 --tag beta，
@@ -17,6 +17,8 @@
  */
 
 import inquirer from 'inquirer';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   channelOfVersion,
   fetchLatestVersion,
@@ -27,6 +29,7 @@ import {
   run,
   withSpinner,
 } from './release';
+import { runCapture } from './proc';
 
 type Channel = 'latest' | 'beta';
 type Bump = 'major' | 'minor' | 'patch' | 'iteration';
@@ -36,21 +39,19 @@ const BUMPS: Bump[] = ['major', 'minor', 'patch', 'iteration'];
 
 /** 本地是否已存在同名 tag */
 async function localTagExists(tag: string): Promise<boolean> {
-  const p = Bun.spawn(['git', 'rev-parse', '-q', '--verify', `refs/tags/${tag}`], { stdout: 'pipe', stderr: 'pipe' });
-  return (await p.exited) === 0;
+  const p = await runCapture('git', ['rev-parse', '-q', '--verify', `refs/tags/${tag}`]);
+  return p.code === 0;
 }
 
 /** 远端 origin 是否已存在同名 tag（ls-remote 权威查询，不依赖本地状态） */
 async function remoteTagExists(tag: string): Promise<boolean> {
-  const p = Bun.spawn(['git', 'ls-remote', '--tags', 'origin', tag], { stdout: 'pipe', stderr: 'pipe' });
-  const out = await new Response(p.stdout).text();
-  await p.exited;
-  return out.trim().length > 0;
+  const p = await runCapture('git', ['ls-remote', '--tags', 'origin', tag]);
+  return p.code === 0 && p.stdout.trim().length > 0;
 }
 
 async function main() {
   const pkg = readPkg();
-  const explicit = Bun.argv[2];
+  const explicit = process.argv[2];
 
   let channel: Channel;
   let version: string;
@@ -106,7 +107,9 @@ async function main() {
   console.log(`\n🎉 已推送 ${tag}。GitHub Actions 将自动构建并发布 ${pkg.name}@${version}（${channel}）。`);
 }
 
-if (import.meta.main) {
+const isMain =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+if (isMain) {
   main().catch((e) => {
     console.error(`\n❌ ${e.message}`);
     process.exit(1);
