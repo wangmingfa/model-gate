@@ -43,7 +43,8 @@
     "unpublish": "bun scripts/unpublish.ts",
     "test": "bun test --path-ignore-patterns=admin",
     "typecheck": "bun node_modules/typescript/bin/tsc --noEmit && bun run --cwd admin typecheck",
-    "kill-dev": "bun scripts/kill-dev.mjs"
+    "kill-dev": "bun scripts/kill-dev.mjs",
+    "postinstall": "bun install --cwd ./admin"
   },
   "dependencies": {
     "hono": "^4.6.0"
