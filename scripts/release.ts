@@ -34,7 +34,7 @@ const PKG_PATH = resolve(import.meta.dir, '..', 'package.json');
  * 完成后用 ✔（成功）或 ✗（失败）收尾并换行。不依赖任何第三方库。
  */
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-async function withSpinner<T>(text: string, fn: () => Promise<T>): Promise<T> {
+export async function withSpinner<T>(text: string, fn: () => Promise<T>): Promise<T> {
   const start = Date.now();
   const elapsed = () => Math.floor((Date.now() - start) / 1000);
 
@@ -139,7 +139,7 @@ async function npmViewVersions(name: string): Promise<{ found: boolean; versions
  * 查询遇临时性错误会重试；重试耗尽仍失败则向上抛错，由 main() 终止并提示原因。
  * 注意：不能用 `npm view <pkg> version`（它只看 latest dist-tag，会漏掉 beta 版本）。
  */
-async function fetchLatestVersion(name: string, channel: Channel): Promise<string | null> {
+export async function fetchLatestVersion(name: string, channel: Channel): Promise<string | null> {
   const result = await withRetry(
     () => npmViewVersions(name),
     {
@@ -298,7 +298,7 @@ export function nextVersion(current: string, channel: Channel, bump: Bump, isFir
 }
 
 /** 交互选择（inquirer 方向键列表）；非交互时 input 直接命中 */
-async function pick<T extends string>(
+export async function pick<T extends string>(
   label: string,
   options: T[],
   input: string | undefined,
@@ -321,7 +321,7 @@ async function pick<T extends string>(
   return ans;
 }
 
-async function run(cmd: string, args: string[]): Promise<void> {
+export async function run(cmd: string, args: string[]): Promise<void> {
   console.log(`\n$ ${cmd} ${args.join(' ')}`);
   const proc = Bun.spawn([cmd, ...args], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' });
   const code = await proc.exited;

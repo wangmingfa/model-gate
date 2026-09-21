@@ -1,0 +1,82 @@
+# 自动化发布 @wangmingfa/model-gate 到 npm（Trusted Publishing / OIDC，无需 NPM_TOKEN）
+#
+# 原理：打 tag 推送到 GitHub → Actions 用 OIDC 短期凭证向 npm 证明
+# 「这个发布请求来自我信任的 GitHub 仓库 + 此 workflow」→ 直接发布并自动生成 provenance。
+#
+# 发布流程：
+#   git tag v0.0.2              # 预发布用 v0.0.2-beta.1（含 -beta.N 后缀自动走 beta dist-tag）
+#   git push origin v0.0.2
+# （发布版本号与 tag 自动对齐，见 Sync version from tag 步骤）
+#
+# 前置（一次性，需你本人在 npm 站点做）：
+#   npm 包 Settings → Trusted publishing → GitHub Actions
+#   Organization or user: wangmingfa
+#   Repository:          model-gate
+#   Workflow filename:   publish.yml
+#   Allowed action:      npm publish   (直接发布，不要选 stage-only)
+#
+# 说明：仓库提交的是 bun.lock（bun 工具链，无 package-lock.json），CI 用 bun 安装依赖并构建；
+#      发布用 Node 24 自带的 npm（Trusted Publishing 要求 npm ≥ 11.5，Node 24 满足）。
+
+name: Publish Package
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# id-token: write 是 Trusted Publishing 的关键——允许 workflow 向 npm 申请 OIDC 短期凭证。
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun（安装依赖 + 构建用）
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node（npm version 同步 + npm publish 用）
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - name: Check versions
+        run: |
+          bun --version
+          node --version
+          npm --version
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build（single-file bundle，内嵌 admin UI）
+        run: bun run build
+
+      - name: Test
+        run: bun test --path-ignore-patterns=admin
+
+      - name: Sync version from tag
+        # 确保发布版本与 tag 一致（即使忘记先改 package.json 也不至于发旧号）
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Publish（Trusted Publishing，无 NPM_TOKEN）
+        # beta 预发布（tag 含 -beta.N）走 beta dist-tag，避免抢占 latest
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "$VERSION" == *-* ]]; then
+            npm publish --tag beta --access public
+          else
+            npm publish --access public
+          fi

@@ -209,7 +209,7 @@ export async function chatWithFailover(
       errors.push({ target, message: `provider "${providerName}" 不存在或缺少 api_key/base_url`, status: null });
       continue;
     }
-    const upstreamBody = { ...body, model };
+    const upstreamBody: Record<string, unknown> = { ...body, model };
     if (Array.isArray(upstreamBody.messages)) upstreamBody.messages = sanitizeMessages(upstreamBody.messages);
     const headers = {
       'content-type': 'application/json',
