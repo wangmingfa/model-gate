@@ -239,6 +239,7 @@ async function onSave(): Promise<void> {
                     v-model:value="items[index]"
                     :options="optionsFor(a, index)"
                     :disabled="disabled"
+                    filterable
                     placeholder="选择提供商下的模型"
                     class="alias-target-select"
                     style="flex: 1; min-width: 0"
